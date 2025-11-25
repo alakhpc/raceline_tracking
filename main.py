@@ -1,6 +1,7 @@
 import argparse
+from pathlib import Path
 
-from controller import ControllerParams
+from controller import load_network
 from racetrack import RaceTrack
 from simulator import Simulator, plt
 
@@ -9,21 +10,22 @@ if __name__ == "__main__":
     parser.add_argument("track", type=str, help="Path to track CSV file")
     parser.add_argument("raceline", type=str, help="Path to raceline CSV file")
     parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="Path to controller config JSON file",
+        "--network", "-n", type=str, default="neat_winner.pkl", help="Path to trained NEAT network pickle file"
     )
 
     args = parser.parse_args()
 
+    # Load trained network
+    network_path = Path(args.network)
+    if network_path.exists():
+        print(f"Loading network from {network_path}")
+        load_network(network_path)
+    else:
+        print(f"Warning: Network file not found: {network_path}")
+        print("Running with fallback controller (go straight slowly)")
+
     racetrack = RaceTrack(args.track, args.raceline)
 
-    ctrl_params = None
-    if args.config:
-        ctrl_params = ControllerParams.from_file(args.config)
-        print(f"Using controller parameters from {args.config}:\n{ctrl_params}")
-
-    simulator = Simulator(racetrack, ctrl_params=ctrl_params)
+    simulator = Simulator(racetrack)
     simulator.start()
     plt.show()

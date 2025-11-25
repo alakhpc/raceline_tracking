@@ -1,22 +1,20 @@
 from time import time
-from typing import Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from controller import ControllerParams, controller, lower_controller
+from controller import controller, lower_controller
 from racecar import RaceCar
 from racetrack import RaceTrack
 
 
 class Simulator:
-    def __init__(self, rt: RaceTrack, ctrl_params: Optional[ControllerParams] = None):
+    def __init__(self, rt: RaceTrack):
         matplotlib.rcParams["figure.dpi"] = 300
         matplotlib.rcParams["font.size"] = 8
 
         self.rt = rt
-        self.ctrl_params = ctrl_params
         self.figure, self.axis = plt.subplots(1, 1)
 
         self.axis.set_xlabel("X")
@@ -82,8 +80,8 @@ class Simulator:
             self.axis.set_xlim(self.car.state[0] - 200, self.car.state[0] + 200)
             self.axis.set_ylim(self.car.state[1] - 200, self.car.state[1] + 200)
 
-            desired = controller(self.car.state, self.car.parameters, self.rt, self.ctrl_params)
-            cont = lower_controller(self.car.state, desired, self.car.parameters, self.ctrl_params)
+            desired = controller(self.car.state, self.car.parameters, self.rt)
+            cont = lower_controller(self.car.state, desired, self.car.parameters)
             self.car.update(cont)
             if self.lap_started and not self.lap_finished:
                 self.sim_time_elapsed += self.car.time_step
@@ -166,9 +164,6 @@ class Simulator:
         print(f"Sim time:            {self.sim_time_elapsed:.2f}s")
         print(f"Wall time:           {self.lap_time_elapsed:.2f}s")
         print(f"Track violations:    {self.track_limit_violations}")
-        if self.ctrl_params:
-            print("\nController Parameters:")
-            print(self.ctrl_params)
         print("=" * 50)
 
     def start(self):

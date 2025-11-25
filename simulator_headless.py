@@ -1,24 +1,21 @@
 from time import time
-from typing import Optional
 
 import numpy as np
 
-from controller import ControllerParams, controller, lower_controller
+from controller import controller, lower_controller
 from racecar import RaceCar
 from racetrack import RaceTrack
 
 
 class HeadlessSimulator:
-    def __init__(self, rt: RaceTrack, ctrl_params: Optional[ControllerParams] = None):
+    def __init__(self, rt: RaceTrack):
         """
         Initialize headless simulator.
 
         Args:
             rt: RaceTrack object containing track geometry.
-            ctrl_params: Optional ControllerParams. Uses defaults if None.
         """
         self.rt = rt
-        self.ctrl_params = ctrl_params
         self.car = RaceCar(self.rt.initial_state.T)
 
         self.lap_time_elapsed = 0
@@ -29,28 +26,17 @@ class HeadlessSimulator:
         self.track_limit_violations = 0
         self.currently_violating = False
 
-        # Cache for optimization: track closest centerline index
-        self._closest_idx = 0
-
-    def check_track_limits(self, closest_idx: int = None):
+    def check_track_limits(self):
         """
         Check if car is within track limits.
 
         Args:
-            closest_idx: Optional closest centerline index (from controller).
-                        If None, will compute it (slower).
         """
         car_position = self.car.state[0:2]
 
-        # Use provided closest_idx or compute it (should be provided for performance)
-        if closest_idx is None:
-            centerline_distances = np.linalg.norm(self.rt.centerline - car_position, axis=1)
-            closest_idx = np.argmin(centerline_distances)
-
-        # Update cached closest_idx
-        self._closest_idx = closest_idx
-
         # Check only the closest segment (much faster than checking all points)
+        centerline_distances = np.linalg.norm(self.rt.centerline - car_position, axis=1)
+        closest_idx = np.argmin(centerline_distances)
         to_right = self.rt.right_boundary[closest_idx] - self.rt.centerline[closest_idx]
         to_left = self.rt.left_boundary[closest_idx] - self.rt.centerline[closest_idx]
         to_car = car_position - self.rt.centerline[closest_idx]
@@ -101,24 +87,16 @@ class HeadlessSimulator:
         if self.sim_time_elapsed >= 300.0:
             return False
 
-        # Get control output and closest_idx (reuse cached for optimization)
-        desired, closest_idx = controller(
-            self.car.state,
-            self.car.parameters,
-            self.rt,
-            self.ctrl_params,
-            closest_idx_hint=self._closest_idx,
-            return_closest_idx=True,
-        )
-        cont = lower_controller(self.car.state, desired, self.car.parameters, self.ctrl_params)
+        # Get control output
+        desired = controller(self.car.state, self.car.parameters, self.rt)
+        cont = lower_controller(self.car.state, desired, self.car.parameters)
         self.car.update(cont)
 
         if self.lap_started and not self.lap_finished:
             self.sim_time_elapsed += self.car.time_step
 
         self.update_status()
-        # Pass closest_idx to avoid recomputing it
-        self.check_track_limits(closest_idx=closest_idx)
+        self.check_track_limits()
 
         # Stop immediately if violation occurs and stop_on_violation is True
         if stop_on_violation and self.track_limit_violations > 0:
@@ -165,4 +143,3 @@ class HeadlessSimulator:
             "track_limit_violations": self.track_limit_violations,
             "iterations": iterations,
         }
-

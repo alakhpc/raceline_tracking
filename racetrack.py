@@ -2,6 +2,7 @@ import matplotlib.axes as axes
 import matplotlib.patches as patches
 import matplotlib.path as path
 import numpy as np
+from scipy.spatial import KDTree
 
 
 def resample(path: np.ndarray, n: int) -> np.ndarray:
@@ -37,6 +38,24 @@ class RaceTrack:
         # This allows blending of raceline and centerline
         n_centerline = len(self.centerline)
         self.raceline = resample(raceline_raw, n_centerline)
+
+        # Build KD-Trees for fast nearest-point queries
+        self.raceline_kdtree = KDTree(self.raceline)
+        self.centerline_kdtree = KDTree(self.centerline)
+
+        # Precompute raceline directions (unit vectors)
+        raceline_diff = np.roll(self.raceline, -1, axis=0) - self.raceline
+        raceline_norms = np.linalg.norm(raceline_diff, axis=1, keepdims=True)
+        self.raceline_directions = raceline_diff / (raceline_norms + 1e-6)
+
+        # Precompute raceline headings
+        self.raceline_headings = np.arctan2(
+            self.raceline_directions[:, 1], self.raceline_directions[:, 0]
+        )
+
+        # Precompute curvatures (angle change between segments)
+        heading_diff = np.roll(self.raceline_headings, -10) - self.raceline_headings
+        self.raceline_curvatures = np.arctan2(np.sin(heading_diff), np.cos(heading_diff))
 
         # Compute track left and right boundaries
         self.right_boundary = self.centerline[:, :2] + centerline_norm[:, :2] * np.expand_dims(data[:, 2], axis=1)
