@@ -1,42 +1,28 @@
-#!/usr/bin/env python3
 import argparse
-import sys
 
-import matplotlib.pyplot as plt
+from controller import ControllerParams
+from racetrack import RaceTrack
+from simulator import Simulator, plt
 
-from simulator import HeadlessSimulator, RaceTrack, Simulator
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Raceline tracking simulator")
-    parser.add_argument("track", help="Path to track CSV file")
-    parser.add_argument("raceline", help="Path to raceline CSV file")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run racing simulator with visualization")
+    parser.add_argument("track", type=str, help="Path to track CSV file")
     parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run in headless mode (no visualization, fast simulation)",
-    )
-    parser.add_argument(
-        "--max-time",
-        type=float,
-        default=300.0,
-        help="Maximum simulation time in seconds (default: 300)",
+        "--config",
+        type=str,
+        default=None,
+        help="Path to controller config JSON file",
     )
 
     args = parser.parse_args()
 
     racetrack = RaceTrack(args.track)
 
-    if args.headless:
-        simulator = HeadlessSimulator(racetrack, max_time=args.max_time)
-        report = simulator.run()
-        report.print()
-        sys.exit(0 if report.completed else 1)
-    else:
-        simulator = Simulator(racetrack)
-        simulator.start()
-        plt.show()
+    ctrl_params = None
+    if args.config:
+        ctrl_params = ControllerParams.from_file(args.config)
+        print(f"Using controller parameters from {args.config}:\n{ctrl_params}")
 
-
-if __name__ == "__main__":
-    main()
+    simulator = Simulator(racetrack, ctrl_params=ctrl_params)
+    simulator.start()
+    plt.show()
