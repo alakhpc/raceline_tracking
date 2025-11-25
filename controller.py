@@ -28,6 +28,7 @@ class ControllerParams:
     v_min: float = 15.0  # Minimum velocity to maintain (m/s) - range: [10, 30]
     kp_steer: float = 2.0  # Proportional gain for steering rate - range: [1, 5]
     kp_vel: float = 5.0  # Proportional gain for acceleration - range: [2, 10]
+    blend: float = 0.5  # Blend factor: 0.0=centerline, 1.0=raceline - range: [0.0, 1.0]
 
     def __repr__(self) -> str:
         return (
@@ -39,7 +40,8 @@ class ControllerParams:
             f"  brake_lookahead={self.brake_lookahead:.2f},\n"
             f"  v_min={self.v_min:.2f},\n"
             f"  kp_steer={self.kp_steer:.2f},\n"
-            f"  kp_vel={self.kp_vel:.2f}\n"
+            f"  kp_vel={self.kp_vel:.2f},\n"
+            f"  blend={self.blend:.2f}\n"
             f")"
         )
 
@@ -310,8 +312,10 @@ def controller(
     wheelbase = parameters[0]
     max_steering = parameters[4]
 
-    # Use centerline as raceline
-    raceline = racetrack.centerline
+    # Blend raceline and centerline
+    # path = blend * raceline + (1 - blend) * centerline
+    blended_path = ctrl_params.blend * racetrack.raceline + (1 - ctrl_params.blend) * racetrack.centerline
+    raceline = blended_path
 
     # Find closest point on raceline (use hint for optimization)
     closest_idx = find_closest_point(position, raceline, start_idx=closest_idx_hint)

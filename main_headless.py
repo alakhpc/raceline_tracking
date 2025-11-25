@@ -5,9 +5,9 @@ from racetrack import RaceTrack
 from simulator_headless import HeadlessSimulator
 
 TRACKS = [
-    ("IMS", "racetracks/IMS.csv"),
-    ("Montreal", "racetracks/Montreal.csv"),
-    ("Monza", "racetracks/Monza.csv"),
+    ("IMS", "racetracks/IMS.csv", "racetracks/IMS_raceline.csv"),
+    ("Montreal", "racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv"),
+    ("Monza", "racetracks/Monza.csv", "racetracks/Monza_raceline.csv"),
 ]
 
 if __name__ == "__main__":
@@ -28,9 +28,9 @@ if __name__ == "__main__":
 
     results_table = []
 
-    for track_name, track_path in TRACKS:
+    for track_name, track_path, raceline_path in TRACKS:
         print(f"Running simulation on {track_name}...")
-        racetrack = RaceTrack(track_path)
+        racetrack = RaceTrack(track_path, raceline_path)
         simulator = HeadlessSimulator(racetrack, ctrl_params=ctrl_params)
         results = simulator.run()
         results_table.append(

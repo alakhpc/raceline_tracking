@@ -4,9 +4,21 @@ import matplotlib.path as path
 import numpy as np
 
 
+def resample(path: np.ndarray, n: int) -> np.ndarray:
+    """Resample path to have exactly n points using linear interpolation."""
+    if len(path) == n:
+        return path
+    indices = np.linspace(0, len(path) - 1, n)
+    x = np.interp(indices, np.arange(len(path)), path[:, 0])
+    y = np.interp(indices, np.arange(len(path)), path[:, 1])
+    return np.column_stack((x, y))
+
+
 class RaceTrack:
-    def __init__(self, filepath: str):
-        data = np.loadtxt(filepath, comments="#", delimiter=",")
+    def __init__(self, track_path: str, raceline_path: str):
+        data = np.loadtxt(track_path, comments="#", delimiter=",")
+        raceline = np.loadtxt(raceline_path, comments="#", delimiter=",")
+        raceline_raw = raceline[:, 0:2]
         self.centerline = data[:, 0:2]
         self.centerline = np.vstack((self.centerline[-1], self.centerline, self.centerline[0]))
 
@@ -20,6 +32,11 @@ class RaceTrack:
 
         self.centerline = np.delete(self.centerline, 0, axis=0)
         self.centerline = np.delete(self.centerline, -1, axis=0)
+
+        # Interpolate raceline to match centerline length
+        # This allows blending of raceline and centerline
+        n_centerline = len(self.centerline)
+        self.raceline = resample(raceline_raw, n_centerline)
 
         # Compute track left and right boundaries
         self.right_boundary = self.centerline[:, :2] + centerline_norm[:, :2] * np.expand_dims(data[:, 2], axis=1)

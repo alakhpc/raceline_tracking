@@ -30,15 +30,16 @@ PARAM_BOUNDS = {
     "v_min": (10.0, 30.0),
     "kp_steer": (1.0, 5.0),
     "kp_vel": (2.0, 10.0),
+    "blend": (0.0, 1.0),
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())
 
 # Track files to evaluate on (use all available tracks for robust optimization)
 TRACK_FILES = [
-    "racetracks/IMS.csv",
-    "racetracks/Montreal.csv",
-    "racetracks/Monza.csv",
+    ("racetracks/IMS.csv", "racetracks/IMS_raceline.csv"),
+    ("racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv"),
+    ("racetracks/Monza.csv", "racetracks/Monza_raceline.csv"),
 ]
 
 
@@ -49,7 +50,7 @@ TRACK_FILES = [
 
 def genome_to_params(genome: np.ndarray) -> ControllerParams:
     """
-    Convert a normalized genome [0, 1]^8 to ControllerParams.
+    Convert a normalized genome [0, 1]^9 to ControllerParams.
     """
     params = {}
     for i, name in enumerate(PARAM_NAMES):
@@ -62,7 +63,7 @@ def genome_to_params(genome: np.ndarray) -> ControllerParams:
 
 def params_to_genome(params: ControllerParams) -> np.ndarray:
     """
-    Convert ControllerParams to a normalized genome [0, 1]^8.
+    Convert ControllerParams to a normalized genome [0, 1]^9.
     """
     genome = []
     params_dict = asdict(params)
@@ -137,7 +138,7 @@ def main():
 
     # Load tracks once
     print("Loading tracks...")
-    tracks = [RaceTrack(path) for path in TRACK_FILES]
+    tracks = [RaceTrack(track_path, raceline_path) for track_path, raceline_path in TRACK_FILES]
     print(f"Loaded {len(tracks)} tracks.\n")
 
     # Start from default params (normalized to [0, 1])
@@ -217,7 +218,7 @@ def main():
     print("\n" + "-" * 60)
     print("Final Evaluation Results:")
     print("-" * 60)
-    for track_path, track in zip(TRACK_FILES, tracks):
+    for (track_path, raceline_path), track in zip(TRACK_FILES, tracks):
         sim = HeadlessSimulator(track, ctrl_params=best_params)
         results = sim.run()
         status = "✓ Finished" if results["lap_finished"] else "✗ DNF"
