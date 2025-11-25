@@ -3,18 +3,6 @@ revision = 3
 requires-python = ">=3.13"
 
 [[package]]
-name = "cma"
-version = "4.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/b8/33083c988054b23c2df09f2b45f922410a86f60bd4be1ab36c74f72d753b/cma-4.4.0.tar.gz", hash = "sha256:de89664f2a8522c74e40e19d26be51380d41082ea2dcefbd5943e0d0d90bd92c", size = 292657, upload-time = "2025-09-20T20:40:32.441Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/b4/b3c1258c014cb18fdc1920f08bada2eccb7a49e39b9f68c3552ec8acfadf/cma-4.4.0-py3-none-any.whl", hash = "sha256:46da7f95056b02496f4117269026dce3953ef0ae89717267540566effb85b052", size = 303789, upload-time = "2025-09-20T20:40:26.583Z" },
-]
-
-[[package]]
 name = "contourpy"
 version = "1.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -218,6 +206,15 @@ wheels = [
 ]
 
 [[package]]
+name = "neat-python"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/80/80703385bd2b3741fa692c1d7692919f221cf1a569b5398cb5a7b7d4fba8/neat_python-1.0.0.tar.gz", hash = "sha256:7786c6d702a5644256963529e54a7248af5fcbb5fb090d86da5956a1461cf5d9", size = 103582, upload-time = "2025-11-09T18:14:29.762Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/ab/b771e84fef2ae2113312aad076c6e103879ab8dc5874ed97bf0991559107/neat_python-1.0.0-py3-none-any.whl", hash = "sha256:3d3e02b325642c170bfa5109d736da2053543415c78e5990c069f783275a6540", size = 42809, upload-time = "2025-11-09T18:14:28.384Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.3.5"
 source = { registry = "https://pypi.org/simple" }
@@ -362,16 +359,16 @@ name = "raceline-tracking"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "cma" },
     { name = "matplotlib" },
+    { name = "neat-python" },
     { name = "numpy" },
     { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "cma", specifier = ">=4.4.0" },
     { name = "matplotlib", specifier = ">=3.10.7" },
+    { name = "neat-python", specifier = ">=0.92" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "scipy", specifier = ">=1.16.3" },
 ]

@@ -1,66 +1,7 @@
-import json
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Optional
-
 import numpy as np
 from numpy.typing import ArrayLike
 
 from racetrack import RaceTrack
-
-# =============================================================================
-# CONTROLLER PARAMETERS
-# =============================================================================
-
-
-@dataclass
-class ControllerParams:
-    """
-    Controller parameters that can be tuned.
-    Default values provide reasonable baseline performance.
-    """
-
-    lookahead_base: float = 20.0  # Base lookahead distance (m) - range: [10, 50]
-    lookahead_gain: float = 0.8  # Velocity scaling for lookahead - range: [0.5, 2.0]
-    v_max: float = 80.0  # Maximum target velocity (m/s) - range: [50, 100]
-    k_curvature: float = 200.0  # Curvature slowdown factor - range: [50, 500]
-    brake_lookahead: float = 100.0  # How far ahead to look for braking (m) - range: [50, 200]
-    v_min: float = 15.0  # Minimum velocity to maintain (m/s) - range: [10, 30]
-    kp_steer: float = 2.0  # Proportional gain for steering rate - range: [1, 5]
-    kp_vel: float = 5.0  # Proportional gain for acceleration - range: [2, 10]
-    blend: float = 0.5  # Blend factor: 0.0=centerline, 1.0=raceline - range: [0.0, 1.0]
-
-    def __repr__(self) -> str:
-        return (
-            f"ControllerParams(\n"
-            f"  lookahead_base={self.lookahead_base:.2f},\n"
-            f"  lookahead_gain={self.lookahead_gain:.2f},\n"
-            f"  v_max={self.v_max:.2f},\n"
-            f"  k_curvature={self.k_curvature:.2f},\n"
-            f"  brake_lookahead={self.brake_lookahead:.2f},\n"
-            f"  v_min={self.v_min:.2f},\n"
-            f"  kp_steer={self.kp_steer:.2f},\n"
-            f"  kp_vel={self.kp_vel:.2f},\n"
-            f"  blend={self.blend:.2f}\n"
-            f")"
-        )
-
-    def to_file(self, path: str | Path) -> None:
-        """Save controller parameters to a JSON file."""
-        with open(path, "w") as f:
-            json.dump(asdict(self), f, indent=2)
-
-    @classmethod
-    def from_file(cls, path: str | Path) -> "ControllerParams":
-        """Load controller parameters from a JSON file."""
-        with open(path) as f:
-            data = json.load(f)
-        return cls(**data)
-
-
-# Default parameters (used when no ControllerParams is provided)
-DEFAULT_PARAMS = ControllerParams()
-
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -206,78 +147,141 @@ def get_max_curvature_ahead(raceline: ArrayLike, closest_idx: int, lookahead_dis
     return max_curvature
 
 
-# =============================================================================
-# CONTROLLERS
-# =============================================================================
-
-
-def lower_controller(
-    state: ArrayLike,
-    desired: ArrayLike,
-    parameters: ArrayLike,
-    ctrl_params: Optional[ControllerParams] = None,
-) -> ArrayLike:
+def compute_boundary_distances(
+    position: ArrayLike,
+    closest_idx: int,
+    racetrack: RaceTrack,
+) -> tuple[float, float]:
     """
-    Lower-level controller that converts desired commands to control inputs.
-    Uses proportional control for both steering rate and acceleration.
+    Compute distances from car position to left and right track boundaries.
 
     Args:
-        state: Array of shape (5,) representing the current vehicle state.
-            [0] x position (m)
-            [1] y position (m)
-            [2] steering angle (rad)
-            [3] velocity (m/s)
-            [4] heading angle (rad)
-        desired: Array of shape (2,) representing desired commands.
-            [0] desired steering angle (rad)
-            [1] desired velocity (m/s)
-        parameters: Array of shape (11,) containing vehicle parameters.
-        ctrl_params: Optional ControllerParams. Uses defaults if None.
+        position: Array of shape (2,) representing [x, y] position
+        closest_idx: Index of closest point on centerline
+        racetrack: RaceTrack object containing track geometry
 
     Returns:
-        Array of shape (2,) representing control inputs.
-            [0] steering rate command (rad/s)
-            [1] acceleration command (m/s²)
+        Tuple of (distance_to_left, distance_to_right)
     """
-    assert desired.shape == (2,)
+    centerline_point = racetrack.centerline[closest_idx]
+    left_boundary_point = racetrack.left_boundary[closest_idx]
+    right_boundary_point = racetrack.right_boundary[closest_idx]
 
-    if ctrl_params is None:
-        ctrl_params = DEFAULT_PARAMS
+    # Vector from centerline to boundaries
+    to_left = left_boundary_point - centerline_point
+    to_right = right_boundary_point - centerline_point
 
-    current_steering = state[2]
-    current_velocity = state[3]
+    # Vector from centerline to car
+    to_car = position - centerline_point
 
-    desired_steering = desired[0]
-    desired_velocity = desired[1]
+    # Project car position onto boundary direction to get signed distance
+    left_dist = np.linalg.norm(to_left)
+    right_dist = np.linalg.norm(to_right)
 
-    # Proportional control for steering rate
-    steering_error = desired_steering - current_steering
-    steering_rate = ctrl_params.kp_steer * steering_error
+    if left_dist > 1e-6:
+        # How far along the left direction is the car?
+        proj_left = np.dot(to_car, to_left) / left_dist
+        dist_to_left = left_dist - proj_left
+    else:
+        dist_to_left = 0.0
 
-    # Proportional control for acceleration
-    velocity_error = desired_velocity - current_velocity
-    acceleration = ctrl_params.kp_vel * velocity_error
+    if right_dist > 1e-6:
+        proj_right = np.dot(to_car, to_right) / right_dist
+        dist_to_right = right_dist - proj_right
+    else:
+        dist_to_right = 0.0
 
-    # Clamp to parameter limits
-    min_steer_rate, min_accel = parameters[7], parameters[8]
-    max_steer_rate, max_accel = parameters[9], parameters[10]
-
-    steering_rate = np.clip(steering_rate, min_steer_rate, max_steer_rate)
-    acceleration = np.clip(acceleration, min_accel, max_accel)
-
-    return np.array([steering_rate, acceleration])
+    return max(0.0, dist_to_left), max(0.0, dist_to_right)
 
 
-def controller(
+def compute_heading_error(
+    heading: float,
+    closest_idx: int,
+    raceline: ArrayLike,
+) -> float:
+    """
+    Compute the heading error between car heading and raceline tangent.
+
+    Args:
+        heading: Current car heading (rad)
+        closest_idx: Index of closest point on raceline
+        raceline: Array of shape (N, 2) of raceline points
+
+    Returns:
+        Heading error in radians, normalized to [-pi, pi]
+    """
+    n = len(raceline)
+    next_idx = (closest_idx + 1) % n
+
+    # Raceline tangent direction
+    tangent = raceline[next_idx] - raceline[closest_idx]
+    raceline_heading = np.arctan2(tangent[1], tangent[0])
+
+    # Heading error
+    error = raceline_heading - heading
+
+    # Normalize to [-pi, pi]
+    error = np.arctan2(np.sin(error), np.cos(error))
+
+    return error
+
+
+def compute_lateral_error(
+    position: ArrayLike,
+    heading: float,
+    closest_idx: int,
+    raceline: ArrayLike,
+) -> float:
+    """
+    Compute signed lateral error from raceline (positive = left of raceline).
+
+    Args:
+        position: Array of shape (2,) representing [x, y] position
+        heading: Current car heading (rad)
+        closest_idx: Index of closest point on raceline
+        raceline: Array of shape (N, 2) of raceline points
+
+    Returns:
+        Signed lateral error in meters
+    """
+    raceline_point = raceline[closest_idx]
+    to_car = position - raceline_point
+
+    # Get raceline tangent for direction
+    n = len(raceline)
+    next_idx = (closest_idx + 1) % n
+    tangent = raceline[next_idx] - raceline[closest_idx]
+    tangent_norm = np.linalg.norm(tangent)
+
+    if tangent_norm < 1e-6:
+        return 0.0
+
+    tangent = tangent / tangent_norm
+
+    # Perpendicular (left-pointing) vector
+    perp = np.array([-tangent[1], tangent[0]])
+
+    # Signed distance (positive = left of raceline)
+    lateral_error = np.dot(to_car, perp)
+
+    return lateral_error
+
+
+# =============================================================================
+# NEAT CONTROLLER
+# =============================================================================
+
+
+def neat_controller(
     state: ArrayLike,
     parameters: ArrayLike,
     racetrack: RaceTrack,
-    ctrl_params: Optional[ControllerParams] = None,
+    neat_net,
     closest_idx_hint: int = None,
     return_closest_idx: bool = False,
 ) -> ArrayLike | tuple[ArrayLike, int]:
     """
-    High-level controller using Pure Pursuit for steering and curvature-based velocity.
+    NEAT-based controller - outputs steering_rate and acceleration directly.
 
     Args:
         state: Array of shape (5,) representing the current vehicle state.
@@ -287,90 +291,126 @@ def controller(
             [3] velocity (m/s)
             [4] heading angle (rad)
         parameters: Array of shape (11,) containing vehicle parameters.
-            [0] wheelbase (m)
         racetrack: RaceTrack object containing track geometry.
-        ctrl_params: Optional ControllerParams. Uses defaults if None.
+        neat_net: NEAT RecurrentNetwork instance.
         closest_idx_hint: Optional hint for closest point index (for optimization).
-        return_closest_idx: If True, returns tuple (desired_commands, closest_idx).
-                           If False (default), returns only desired_commands for backward compatibility.
+        return_closest_idx: If True, returns tuple (controls, closest_idx).
 
     Returns:
-        If return_closest_idx=False: Array of shape (2,) representing desired commands.
-            [0] desired steering angle (rad)
-            [1] desired velocity (m/s)
-        If return_closest_idx=True: Tuple of (desired_commands, closest_idx)
+        If return_closest_idx=False: Array of shape (2,) representing control inputs.
+            [0] steering rate (rad/s)
+            [1] acceleration (m/s²)
+        If return_closest_idx=True: Tuple of (controls, closest_idx)
     """
-    if ctrl_params is None:
-        ctrl_params = DEFAULT_PARAMS
-
     # Extract state
     x, y = state[0], state[1]
-    current_velocity = state[3]
+    steering_angle = state[2]
+    velocity = state[3]
     heading = state[4]
 
     position = np.array([x, y])
-    wheelbase = parameters[0]
+
+    # Extract vehicle parameters
     max_steering = parameters[4]
+    max_velocity = parameters[5]
+    min_steer_rate = parameters[7]
+    min_accel = parameters[8]
+    max_steer_rate = parameters[9]
+    max_accel = parameters[10]
 
-    # Blend raceline and centerline
-    # path = blend * raceline + (1 - blend) * centerline
-    blended_path = ctrl_params.blend * racetrack.raceline + (1 - ctrl_params.blend) * racetrack.centerline
-    raceline = blended_path
+    # Use raceline for path following
+    raceline = racetrack.raceline
 
-    # Find closest point on raceline (use hint for optimization)
+    # Find closest point on raceline
     closest_idx = find_closest_point(position, raceline, start_idx=closest_idx_hint)
 
     # =========================================================================
-    # PURE PURSUIT STEERING
+    # COMPUTE 11 NORMALIZED INPUTS
     # =========================================================================
 
-    # Compute velocity-dependent lookahead distance
-    lookahead_dist = ctrl_params.lookahead_base + ctrl_params.lookahead_gain * abs(current_velocity)
+    # 1. Velocity normalized [0, 1]
+    velocity_norm = np.clip(velocity / max_velocity, 0.0, 1.0)
 
-    # Find lookahead point
+    # 2. Steering angle normalized [-1, 1]
+    steering_norm = np.clip(steering_angle / max_steering, -1.0, 1.0)
+
+    # 3. Lateral error normalized [-1, 1] (assuming ~10m half-track-width)
+    lateral_error = compute_lateral_error(position, heading, closest_idx, raceline)
+    half_track_width = 10.0  # Approximate, could be computed from boundaries
+    lateral_error_norm = np.clip(lateral_error / half_track_width, -1.0, 1.0)
+
+    # 4. Heading error normalized [-1, 1] (divide by pi)
+    heading_error = compute_heading_error(heading, closest_idx, raceline)
+    heading_error_norm = heading_error / np.pi
+
+    # 5-7. Curvature at current position and ahead
+    n = len(raceline)
+    prev_idx = (closest_idx - 1) % n
+    next_idx = (closest_idx + 1) % n
+    curv_current = compute_curvature(raceline[prev_idx], raceline[closest_idx], raceline[next_idx])
+    curv_ahead_50m = get_max_curvature_ahead(raceline, closest_idx, 50.0)
+    curv_ahead_100m = get_max_curvature_ahead(raceline, closest_idx, 100.0)
+
+    # Scale curvature to reasonable range [0, 1] (curvature rarely exceeds 0.1)
+    curv_scale = 10.0
+    curv_current_norm = np.clip(curv_current * curv_scale, 0.0, 1.0)
+    curv_ahead_50m_norm = np.clip(curv_ahead_50m * curv_scale, 0.0, 1.0)
+    curv_ahead_100m_norm = np.clip(curv_ahead_100m * curv_scale, 0.0, 1.0)
+
+    # 8-9. Boundary distances normalized [0, 1]
+    dist_left, dist_right = compute_boundary_distances(position, closest_idx, racetrack)
+    dist_left_norm = np.clip(dist_left / half_track_width, 0.0, 2.0) / 2.0
+    dist_right_norm = np.clip(dist_right / half_track_width, 0.0, 2.0) / 2.0
+
+    # 10-11. Lookahead point in vehicle frame
+    lookahead_dist = 30.0  # Fixed lookahead for NEAT
     lookahead_point = find_lookahead_point(position, raceline, closest_idx, lookahead_dist)
 
-    # Vector from car to lookahead point
     dx = lookahead_point[0] - x
     dy = lookahead_point[1] - y
 
     # Transform to vehicle frame
-    # Rotation by -heading to get local coordinates
     local_x = dx * np.cos(-heading) - dy * np.sin(-heading)
     local_y = dx * np.sin(-heading) + dy * np.cos(-heading)
 
-    # Distance to lookahead point
-    ld = np.sqrt(local_x**2 + local_y**2)
-
-    if ld < 1e-6:
-        # Already at lookahead point, no steering needed
-        desired_steering = 0.0
-    else:
-        # Pure pursuit formula: delta = atan(2 * L * sin(alpha) / ld)
-        # where alpha is angle to lookahead point in vehicle frame
-        # sin(alpha) = local_y / ld
-        desired_steering = np.arctan2(2.0 * wheelbase * local_y, ld**2)
-
-    # Clamp steering angle
-    desired_steering = np.clip(desired_steering, -max_steering, max_steering)
+    # Normalize by lookahead distance
+    lookahead_local_x_norm = np.clip(local_x / lookahead_dist, 0.0, 2.0) / 2.0
+    lookahead_local_y_norm = np.clip(local_y / lookahead_dist, -1.0, 1.0)
 
     # =========================================================================
-    # CURVATURE-BASED VELOCITY
+    # NEAT NETWORK ACTIVATION
     # =========================================================================
 
-    # Find max curvature in upcoming segment
-    max_curv = get_max_curvature_ahead(raceline, closest_idx, ctrl_params.brake_lookahead)
+    inputs = [
+        velocity_norm,
+        steering_norm,
+        lateral_error_norm,
+        heading_error_norm,
+        curv_current_norm,
+        curv_ahead_50m_norm,
+        curv_ahead_100m_norm,
+        dist_left_norm,
+        dist_right_norm,
+        lookahead_local_x_norm,
+        lookahead_local_y_norm,
+    ]
 
-    # Target velocity decreases with curvature
-    # v = V_MAX / (1 + K_CURVATURE * curvature)
-    desired_velocity = ctrl_params.v_max / (1.0 + ctrl_params.k_curvature * max_curv)
+    # Activate network (returns list of outputs in [-1, 1] due to tanh)
+    outputs = neat_net.activate(inputs)
 
-    # Clamp velocity
-    desired_velocity = np.clip(desired_velocity, ctrl_params.v_min, ctrl_params.v_max)
+    # Scale outputs to actual control ranges
+    # Output 0: steering rate [-max_steer_rate, max_steer_rate]
+    # Output 1: acceleration [-max_accel, max_accel]
+    steering_rate = outputs[0] * max_steer_rate
+    acceleration = outputs[1] * max_accel
 
-    desired_commands = np.array([desired_steering, desired_velocity])
+    # Clamp to limits
+    steering_rate = np.clip(steering_rate, min_steer_rate, max_steer_rate)
+    acceleration = np.clip(acceleration, min_accel, max_accel)
+
+    controls = np.array([steering_rate, acceleration])
 
     if return_closest_idx:
-        return desired_commands, closest_idx
+        return controls, closest_idx
     else:
-        return desired_commands
+        return controls

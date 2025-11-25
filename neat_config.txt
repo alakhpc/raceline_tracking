@@ -1,12 +1,13 @@
-# NEAT Configuration for Racing Controller Parameter Optimization
+# NEAT Configuration for Direct Racing Controller
+# Neural network receives 11 inputs and outputs steering_rate + acceleration
 # Based on best practices from https://neat-python.readthedocs.io/en/latest/cookbook.html
 
 [NEAT]
-# Population size - larger for more diversity
-pop_size = 100
+# Larger population for complex control problems
+pop_size = 25
 # Fitness criterion: max = maximize fitness (higher is better)
 fitness_criterion = max
-# Don't terminate on fitness threshold - we optimize continuously
+# High threshold - we use generation limit instead
 fitness_threshold = 99999
 # Reset on extinction to keep evolution going
 reset_on_extinction = True
@@ -15,15 +16,16 @@ no_fitness_termination = False
 
 [DefaultGenome]
 # Network topology
-# 1 dummy input (NEAT needs at least 1 input to work correctly)
-num_inputs = 1
-# 8 outputs - one for each tunable parameter
-num_outputs = 8
-# No hidden nodes needed for static parameter output
-num_hidden = 0
+# 11 inputs: velocity, steering, lateral_error, heading_error, curvatures (3),
+#            boundary distances (2), lookahead point (2)
+num_inputs = 11
+# 2 outputs: steering_rate, acceleration (both scaled from tanh [-1, 1])
+num_outputs = 2
+# Start with 2 hidden nodes for complex control
+num_hidden = 2
 
 # Node activation options
-# Use tanh for outputs in range [-1, 1] which we scale to parameter ranges
+# Use tanh for outputs in range [-1, 1] which we scale to control ranges
 activation_default = tanh
 activation_mutate_rate = 0.0
 activation_options = tanh
@@ -33,23 +35,23 @@ aggregation_default = sum
 aggregation_mutate_rate = 0.0
 aggregation_options = sum
 
-# Node bias options - biases ARE the evolved parameters, so use wide init and strong mutations
+# Node bias options
 bias_init_mean = 0.0
-bias_init_stdev = 3.0
+bias_init_stdev = 1.0
 bias_init_type = gaussian
 bias_max_value = 30.0
 bias_min_value = -30.0
-bias_mutate_power = 1.5
-bias_mutate_rate = 0.9
-bias_replace_rate = 0.2
+bias_mutate_power = 0.5
+bias_mutate_rate = 0.7
+bias_replace_rate = 0.1
 
 # Genome compatibility options
 compatibility_disjoint_coefficient = 1.0
 compatibility_weight_coefficient = 0.5
 
-# Connection add/remove rates - MUST be 0 with num_inputs=0
-conn_add_prob = 0.0
-conn_delete_prob = 0.0
+# Connection add/remove rates - enable topology evolution
+conn_add_prob = 0.5
+conn_delete_prob = 0.5
 
 # Connection enable options
 enabled_default = True
@@ -57,11 +59,14 @@ enabled_mutate_rate = 0.01
 enabled_rate_to_true_add = 0.0
 enabled_rate_to_false_add = 0.0
 
-# Feed-forward network (no recurrence needed for static params)
-feed_forward = True
+# Recurrent network for control problems (memory of past states)
+feed_forward = False
 
-# Connection weight options - full connection from dummy input to all outputs
-initial_connection = full_direct
+# Initial connection - partial without direct input-output connections
+# Forces signal to flow through hidden nodes initially
+initial_connection = partial_nodirect 0.5
+
+# Connection weight options
 weight_init_mean = 0.0
 weight_init_stdev = 1.0
 weight_init_type = gaussian
@@ -71,9 +76,9 @@ weight_mutate_power = 0.5
 weight_mutate_rate = 0.8
 weight_replace_rate = 0.1
 
-# Node add/remove rates - MUST be 0 with num_inputs=0 (no connections to split)
-node_add_prob = 0.0
-node_delete_prob = 0.0
+# Node add/remove rates - enable topology evolution
+node_add_prob = 0.2
+node_delete_prob = 0.2
 
 # Node response options
 response_init_mean = 1.0
@@ -91,7 +96,8 @@ structural_mutation_surer = default
 
 [DefaultSpeciesSet]
 # Compatibility threshold - lower = more species = more diversity
-compatibility_threshold = 3.0
+# Use 2.5 for complex problems (more exploration)
+compatibility_threshold = 2.5
 
 [DefaultStagnation]
 # Species fitness function
@@ -103,9 +109,8 @@ species_elitism = 2
 
 [DefaultReproduction]
 # Number of top genomes to preserve unchanged each generation
-elitism = 3
+elitism = 5
 # Fraction of species allowed to reproduce
 survival_threshold = 0.2
 # Minimum number of genomes in a species
 min_species_size = 2
-

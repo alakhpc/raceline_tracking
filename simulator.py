@@ -1,22 +1,28 @@
 from time import time
-from typing import Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from controller import ControllerParams, controller, lower_controller
+from controller import neat_controller
 from racecar import RaceCar
 from racetrack import RaceTrack
 
 
 class Simulator:
-    def __init__(self, rt: RaceTrack, ctrl_params: Optional[ControllerParams] = None):
+    def __init__(self, rt: RaceTrack, neat_net):
+        """
+        Initialize visual simulator.
+
+        Args:
+            rt: RaceTrack object containing track geometry.
+            neat_net: NEAT RecurrentNetwork instance.
+        """
         matplotlib.rcParams["figure.dpi"] = 300
         matplotlib.rcParams["font.size"] = 8
 
         self.rt = rt
-        self.ctrl_params = ctrl_params
+        self.neat_net = neat_net
         self.figure, self.axis = plt.subplots(1, 1)
 
         self.axis.set_xlabel("X")
@@ -32,23 +38,20 @@ class Simulator:
         self.track_limit_violations = 0
         self.currently_violating = False
 
-    def check_track_limits(self):
+        # Cache for optimization
+        self._closest_idx = 0
+
+        # Reset NEAT network state
+        self.neat_net.reset()
+
+    def check_track_limits(self, closest_idx: int = None):
         car_position = self.car.state[0:2]
 
-        min_dist_right = float("inf")
-        min_dist_left = float("inf")
+        if closest_idx is None:
+            centerline_distances = np.linalg.norm(self.rt.centerline - car_position, axis=1)
+            closest_idx = np.argmin(centerline_distances)
 
-        for i in range(len(self.rt.right_boundary)):
-            dist_right = np.linalg.norm(car_position - self.rt.right_boundary[i])
-            dist_left = np.linalg.norm(car_position - self.rt.left_boundary[i])
-
-            if dist_right < min_dist_right:
-                min_dist_right = dist_right
-            if dist_left < min_dist_left:
-                min_dist_left = dist_left
-
-        centerline_distances = np.linalg.norm(self.rt.centerline - car_position, axis=1)
-        closest_idx = np.argmin(centerline_distances)
+        self._closest_idx = closest_idx
 
         to_right = self.rt.right_boundary[closest_idx] - self.rt.centerline[closest_idx]
         to_left = self.rt.left_boundary[closest_idx] - self.rt.centerline[closest_idx]
@@ -82,13 +85,21 @@ class Simulator:
             self.axis.set_xlim(self.car.state[0] - 200, self.car.state[0] + 200)
             self.axis.set_ylim(self.car.state[1] - 200, self.car.state[1] + 200)
 
-            desired = controller(self.car.state, self.car.parameters, self.rt, self.ctrl_params)
-            cont = lower_controller(self.car.state, desired, self.car.parameters, self.ctrl_params)
+            # NEAT controller: outputs steering_rate and acceleration directly
+            cont, closest_idx = neat_controller(
+                self.car.state,
+                self.car.parameters,
+                self.rt,
+                self.neat_net,
+                closest_idx_hint=self._closest_idx,
+                return_closest_idx=True,
+            )
             self.car.update(cont)
+
             if self.lap_started and not self.lap_finished:
                 self.sim_time_elapsed += self.car.time_step
             self.update_status()
-            self.check_track_limits()
+            self.check_track_limits(closest_idx=closest_idx)
 
             self.axis.arrow(
                 self.car.state[0],
@@ -166,9 +177,6 @@ class Simulator:
         print(f"Sim time:            {self.sim_time_elapsed:.2f}s")
         print(f"Wall time:           {self.lap_time_elapsed:.2f}s")
         print(f"Track violations:    {self.track_limit_violations}")
-        if self.ctrl_params:
-            print("\nController Parameters:")
-            print(self.ctrl_params)
         print("=" * 50)
 
     def start(self):

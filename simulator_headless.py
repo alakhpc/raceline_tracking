@@ -1,24 +1,23 @@
 from time import time
-from typing import Optional
 
 import numpy as np
 
-from controller import ControllerParams, controller, lower_controller
+from controller import neat_controller
 from racecar import RaceCar
 from racetrack import RaceTrack
 
 
 class HeadlessSimulator:
-    def __init__(self, rt: RaceTrack, ctrl_params: Optional[ControllerParams] = None):
+    def __init__(self, rt: RaceTrack, neat_net):
         """
         Initialize headless simulator.
 
         Args:
             rt: RaceTrack object containing track geometry.
-            ctrl_params: Optional ControllerParams. Uses defaults if None.
+            neat_net: NEAT RecurrentNetwork instance.
         """
         self.rt = rt
-        self.ctrl_params = ctrl_params
+        self.neat_net = neat_net
         self.car = RaceCar(self.rt.initial_state.T)
 
         self.lap_time_elapsed = 0
@@ -31,6 +30,9 @@ class HeadlessSimulator:
 
         # Cache for optimization: track closest centerline index
         self._closest_idx = 0
+
+        # Reset NEAT network state
+        self.neat_net.reset()
 
     def check_track_limits(self, closest_idx: int = None):
         """
@@ -101,16 +103,16 @@ class HeadlessSimulator:
         if self.sim_time_elapsed >= 300.0:
             return False
 
-        # Get control output and closest_idx (reuse cached for optimization)
-        desired, closest_idx = controller(
+        # NEAT controller: outputs steering_rate and acceleration directly
+        cont, closest_idx = neat_controller(
             self.car.state,
             self.car.parameters,
             self.rt,
-            self.ctrl_params,
+            self.neat_net,
             closest_idx_hint=self._closest_idx,
             return_closest_idx=True,
         )
-        cont = lower_controller(self.car.state, desired, self.car.parameters, self.ctrl_params)
+
         self.car.update(cont)
 
         if self.lap_started and not self.lap_finished:
@@ -165,4 +167,3 @@ class HeadlessSimulator:
             "track_limit_violations": self.track_limit_violations,
             "iterations": iterations,
         }
-
