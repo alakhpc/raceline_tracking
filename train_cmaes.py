@@ -36,9 +36,9 @@ PARAM_NAMES = list(PARAM_BOUNDS.keys())
 
 # Track files to evaluate on (use all available tracks for robust optimization)
 TRACK_FILES = [
-    # "racetracks/IMS.csv",
+    "racetracks/IMS.csv",
     "racetracks/Montreal.csv",
-    # "racetracks/Monza.csv",
+    "racetracks/Monza.csv",
 ]
 
 
