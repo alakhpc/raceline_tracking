@@ -1,13 +1,13 @@
-import numpy as np
+from time import time
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 
-from time import time
-
-from racetrack import RaceTrack
+from controller import controller, lower_controller
 from racecar import RaceCar
-from controller import lower_controller, controller
+from racetrack import RaceTrack
+
 
 class Simulator:
 
@@ -24,6 +24,7 @@ class Simulator:
 
         self.lap_time_elapsed = 0
         self.lap_start_time = None
+        self.sim_time_elapsed = 0
         self.lap_finished = False
         self.lap_started = False
         self.track_limit_violations = 0
@@ -68,6 +69,7 @@ class Simulator:
     def run(self):
         try:
             if self.lap_finished:
+                self.print_results()
                 exit()
 
             self.figure.canvas.flush_events()
@@ -81,31 +83,66 @@ class Simulator:
             desired = controller(self.car.state, self.car.parameters, self.rt)
             cont = lower_controller(self.car.state, desired, self.car.parameters)
             self.car.update(cont)
+            if self.lap_started and not self.lap_finished:
+                self.sim_time_elapsed += self.car.time_step
             self.update_status()
             self.check_track_limits()
 
             self.axis.arrow(
-                self.car.state[0], self.car.state[1], \
-                self.car.wheelbase*np.cos(self.car.state[4]), \
-                self.car.wheelbase*np.sin(self.car.state[4])
+                self.car.state[0],
+                self.car.state[1],
+                self.car.wheelbase * np.cos(self.car.state[4]),
+                self.car.wheelbase * np.sin(self.car.state[4]),
             )
 
             self.axis.text(
-                self.car.state[0] + 195, self.car.state[1] + 195, "Lap completed: " + str(self.lap_finished),
-                horizontalalignment="right", verticalalignment="top",
-                fontsize=8, color="Red"
+                self.car.state[0] + 195,
+                self.car.state[1] + 195,
+                "Lap completed: " + str(self.lap_finished),
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
             )
 
             self.axis.text(
-                self.car.state[0] + 195, self.car.state[1] + 170, "Lap time: " + f"{self.lap_time_elapsed:.2f}",
-                horizontalalignment="right", verticalalignment="top",
-                fontsize=8, color="Red"
+                self.car.state[0] + 195,
+                self.car.state[1] + 170,
+                "Lap time: " + f"{self.lap_time_elapsed:.2f}",
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
             )
 
             self.axis.text(
-                self.car.state[0] + 195, self.car.state[1] + 155, "Track violations: " + str(self.track_limit_violations),
-                horizontalalignment="right", verticalalignment="top",
-                fontsize=8, color="Red"
+                self.car.state[0] + 195,
+                self.car.state[1] + 155,
+                "Sim time: " + f"{self.sim_time_elapsed:.2f}",
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
+            )
+
+            self.axis.text(
+                self.car.state[0] + 195,
+                self.car.state[1] + 140,
+                "Track violations: " + str(self.track_limit_violations),
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
+            )
+
+            self.axis.text(
+                self.car.state[0] + 195,
+                self.car.state[1] + 125,
+                f"Speed: {self.car.state[3]:.1f} m/s",
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
             )
 
             self.figure.canvas.draw()
@@ -119,6 +156,7 @@ class Simulator:
 
         if progress > 10.0 and not self.lap_started:
             self.lap_started = True
+            self.sim_time_elapsed = 0
     
         if progress <= 10.0 and self.lap_started and not self.lap_finished:
             self.lap_finished = True
@@ -126,6 +164,18 @@ class Simulator:
 
         if not self.lap_finished and self.lap_start_time is not None:
             self.lap_time_elapsed = time() - self.lap_start_time
+
+
+    def print_results(self):
+        """Print simulation results to console."""
+        print("\n" + "=" * 50)
+        print("SIMULATION RESULTS")
+        print("=" * 50)
+        print(f"Lap completed:       {self.lap_finished}")
+        print(f"Lap time:            {self.lap_time_elapsed:.2f}s")
+        print(f"Sim time:            {self.sim_time_elapsed:.2f}s")
+        print(f"Track violations:    {self.track_limit_violations}")
+        print("=" * 50)
 
     def start(self):
         # Run the simulation loop every 1 millisecond.
