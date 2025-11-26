@@ -20,14 +20,18 @@ class ControllerParams:
     Default values provide reasonable baseline performance.
     """
 
-    lookahead_base: float = 20.0  # Base lookahead distance (m) - range: [10, 50]
-    lookahead_gain: float = 0.8  # Velocity scaling for lookahead - range: [0.5, 2.0]
-    v_max: float = 80.0  # Maximum target velocity (m/s) - range: [50, 100]
-    k_curvature: float = 200.0  # Curvature slowdown factor - range: [50, 500]
-    brake_lookahead: float = 100.0  # How far ahead to look for braking (m) - range: [50, 200]
-    v_min: float = 15.0  # Minimum velocity to maintain (m/s) - range: [10, 30]
-    kp_steer: float = 2.0  # Proportional gain for steering rate - range: [1, 5]
-    kp_vel: float = 5.0  # Proportional gain for acceleration - range: [2, 10]
+    lookahead_base: float = 15.0  # Base lookahead distance (m) - range: [5, 40]
+    lookahead_gain: float = 0.6  # Velocity scaling for lookahead - range: [0.2, 1.5]
+    v_max: float = 95.0  # Maximum target velocity (m/s) - range: [70, 100]
+    k_curvature: float = 180.0  # Curvature slowdown factor - range: [80, 400]
+    brake_lookahead: float = 150.0  # How far ahead to look for braking (m) - range: [80, 250]
+    v_min: float = 14.0  # Minimum velocity to maintain (m/s) - range: [10, 25]
+    kp_steer: float = 3.5  # Proportional gain for steering rate - range: [1, 6]
+    kp_vel: float = 6.0  # Proportional gain for acceleration - range: [2, 12]
+    # New parameters for improved velocity planning
+    decel_factor: float = 0.65  # Fraction of max decel to use for braking - range: [0.4, 0.9]
+    steer_anticipation: float = 2.5  # How much to slow for steering changes - range: [1.0, 5.0]
+    raceline_blend: float = 0.0  # Blend between centerline (0) and raceline (1) - range: [0.0, 1.0]
 
     def __repr__(self) -> str:
         return (
@@ -39,7 +43,10 @@ class ControllerParams:
             f"  brake_lookahead={self.brake_lookahead:.2f},\n"
             f"  v_min={self.v_min:.2f},\n"
             f"  kp_steer={self.kp_steer:.2f},\n"
-            f"  kp_vel={self.kp_vel:.2f}\n"
+            f"  kp_vel={self.kp_vel:.2f},\n"
+            f"  decel_factor={self.decel_factor:.2f},\n"
+            f"  steer_anticipation={self.steer_anticipation:.2f},\n"
+            f"  raceline_blend={self.raceline_blend:.2f}\n"
             f")"
         )
 
@@ -204,6 +211,241 @@ def get_max_curvature_ahead(raceline: ArrayLike, closest_idx: int, lookahead_dis
     return max_curvature
 
 
+def get_weighted_curvature_ahead(
+    raceline: ArrayLike, closest_idx: int, lookahead_dist: float, decay: float = 0.7
+) -> float:
+    """
+    Find a weighted curvature metric in the upcoming segment.
+    Nearby curvatures are weighted more heavily using exponential decay.
+
+    Args:
+        raceline: Array of shape (N, 2) of raceline points
+        closest_idx: Current closest index on raceline
+        lookahead_dist: How far ahead to look (m)
+        decay: Exponential decay factor (0-1). Lower = faster decay.
+
+    Returns:
+        Weighted curvature metric (higher = sharper turns ahead)
+    """
+    n = len(raceline)
+    cumulative_dist = 0.0
+    idx = closest_idx
+    weighted_curv = 0.0
+    weight_sum = 0.0
+    step = 0
+
+    while cumulative_dist < lookahead_dist:
+        prev_idx = (idx - 1) % n
+        next_idx = (idx + 1) % n
+
+        curv = compute_curvature(raceline[prev_idx], raceline[idx], raceline[next_idx])
+
+        # Exponential weight: nearby points weighted more heavily
+        weight = decay**step
+        weighted_curv += curv * weight
+        weight_sum += weight
+
+        segment_dist = np.linalg.norm(raceline[next_idx] - raceline[idx])
+        cumulative_dist += segment_dist
+        idx = next_idx
+        step += 1
+
+        if idx == closest_idx:
+            break
+
+    if weight_sum > 0:
+        return weighted_curv / weight_sum
+    return 0.0
+
+
+def compute_target_velocity_for_curvature(curvature: float, v_max: float, v_min: float, k_curvature: float) -> float:
+    """
+    Compute target velocity based on curvature.
+    Uses physics-based formula: v = sqrt(a_lat / curvature), clamped to limits.
+
+    Args:
+        curvature: Local curvature (1/m)
+        v_max: Maximum velocity
+        v_min: Minimum velocity
+        k_curvature: Curvature scaling factor
+
+    Returns:
+        Target velocity for this curvature
+    """
+    if curvature < 1e-6:
+        return v_max
+
+    # v = V_MAX / (1 + K * curvature)
+    v = v_max / (1.0 + k_curvature * curvature)
+    return np.clip(v, v_min, v_max)
+
+
+def get_braking_velocity(
+    current_v: float,
+    target_v: float,
+    distance: float,
+    max_decel: float,
+    decel_factor: float = 0.85,
+) -> float:
+    """
+    Compute what velocity we need now to reach target_v at a given distance ahead.
+    Uses kinematic equation: v² = v0² + 2*a*d
+
+    Args:
+        current_v: Current velocity
+        target_v: Target velocity at the point ahead
+        distance: Distance to that point
+        max_decel: Maximum deceleration available
+        decel_factor: Fraction of max decel to use (safety margin)
+
+    Returns:
+        Maximum velocity we can be at now to reach target_v
+    """
+    if distance < 1e-6:
+        return target_v
+
+    # Using v² = v0² + 2*a*d, solving for v0:
+    # v0² = v² - 2*a*d (where a is negative for braking)
+    usable_decel = max_decel * decel_factor
+    v_squared = target_v**2 + 2.0 * usable_decel * distance
+
+    if v_squared < 0:
+        return target_v
+
+    return np.sqrt(v_squared)
+
+
+def get_heading_change_ahead(
+    raceline: ArrayLike,
+    closest_idx: int,
+    lookahead_dist: float,
+) -> float:
+    """
+    Compute the total absolute heading change in the upcoming segment.
+    This helps identify chicanes and S-curves that require steering agility.
+
+    Args:
+        raceline: Array of shape (N, 2) of raceline points
+        closest_idx: Current closest index on raceline
+        lookahead_dist: How far ahead to look (m)
+
+    Returns:
+        Total absolute heading change in radians
+    """
+    n = len(raceline)
+    cumulative_dist = 0.0
+    idx = closest_idx
+    total_heading_change = 0.0
+
+    # Get initial heading
+    next_idx = (idx + 1) % n
+    prev_heading = np.arctan2(
+        raceline[next_idx][1] - raceline[idx][1],
+        raceline[next_idx][0] - raceline[idx][0],
+    )
+
+    while cumulative_dist < lookahead_dist:
+        next_idx = (idx + 1) % n
+        next_next_idx = (next_idx + 1) % n
+
+        # Compute heading at next point
+        curr_heading = np.arctan2(
+            raceline[next_next_idx][1] - raceline[next_idx][1],
+            raceline[next_next_idx][0] - raceline[next_idx][0],
+        )
+
+        # Compute heading change (handle wraparound)
+        heading_diff = curr_heading - prev_heading
+        heading_diff = np.arctan2(np.sin(heading_diff), np.cos(heading_diff))
+        total_heading_change += abs(heading_diff)
+
+        prev_heading = curr_heading
+
+        # Move to next point
+        segment_dist = np.linalg.norm(raceline[next_idx] - raceline[idx])
+        cumulative_dist += segment_dist
+        idx = next_idx
+
+        if idx == closest_idx:
+            break
+
+    return total_heading_change
+
+
+def get_velocity_profile_ahead(
+    raceline: ArrayLike,
+    closest_idx: int,
+    lookahead_dist: float,
+    v_max: float,
+    v_min: float,
+    k_curvature: float,
+    max_decel: float,
+    decel_factor: float = 0.65,
+    steer_anticipation: float = 2.5,
+) -> float:
+    """
+    Compute the required velocity now by looking at upcoming corners
+    and computing braking requirements. Also considers steering rate limits.
+
+    Args:
+        raceline: Array of shape (N, 2) of raceline points
+        closest_idx: Current closest index on raceline
+        lookahead_dist: How far ahead to look (m)
+        v_max: Maximum velocity
+        v_min: Minimum velocity
+        k_curvature: Curvature scaling factor
+        max_decel: Maximum deceleration
+        decel_factor: Fraction of max decel to use
+        steer_anticipation: How much to penalize steering changes
+
+    Returns:
+        Target velocity for current position considering upcoming corners
+    """
+    n = len(raceline)
+    cumulative_dist = 0.0
+    idx = closest_idx
+    min_required_v = v_max
+
+    # Check heading changes for chicanes - use shorter lookahead for responsiveness
+    heading_change = get_heading_change_ahead(raceline, closest_idx, lookahead_dist * 0.4)
+
+    # If there's significant heading change ahead, reduce velocity
+    # This accounts for steering rate limits in chicanes
+    if heading_change > 0.3:  # More than ~17 degrees of total change
+        # Estimate time needed for steering changes
+        # More heading change = need more time = lower velocity
+        steering_penalty = 1.0 / (1.0 + steer_anticipation * heading_change)
+        min_required_v = min(min_required_v, v_max * steering_penalty)
+
+    while cumulative_dist < lookahead_dist:
+        prev_idx = (idx - 1) % n
+        next_idx = (idx + 1) % n
+
+        # Get curvature at this point
+        curv = compute_curvature(raceline[prev_idx], raceline[idx], raceline[next_idx])
+
+        # Get target velocity for this curvature
+        target_v_at_point = compute_target_velocity_for_curvature(curv, v_max, v_min, k_curvature)
+
+        # What velocity do we need NOW to reach that target?
+        if cumulative_dist > 0:
+            required_v_now = get_braking_velocity(v_max, target_v_at_point, cumulative_dist, max_decel, decel_factor)
+        else:
+            required_v_now = target_v_at_point
+
+        min_required_v = min(min_required_v, required_v_now)
+
+        # Move to next point
+        segment_dist = np.linalg.norm(raceline[next_idx] - raceline[idx])
+        cumulative_dist += segment_dist
+        idx = next_idx
+
+        if idx == closest_idx:
+            break
+
+    return np.clip(min_required_v, v_min, v_max)
+
+
 # =============================================================================
 # CONTROLLERS
 # =============================================================================
@@ -275,7 +517,7 @@ def controller(
     return_closest_idx: bool = False,
 ) -> ArrayLike | tuple[ArrayLike, int]:
     """
-    High-level controller using Pure Pursuit for steering and curvature-based velocity.
+    High-level controller using Pure Pursuit for steering and physics-based velocity planning.
 
     Args:
         state: Array of shape (5,) representing the current vehicle state.
@@ -309,9 +551,15 @@ def controller(
     position = np.array([x, y])
     wheelbase = parameters[0]
     max_steering = parameters[4]
+    max_decel = abs(parameters[8])  # Maximum deceleration (positive value)
 
-    # Use centerline as raceline
-    raceline = racetrack.centerline
+    # Blend between centerline and raceline based on raceline_blend parameter
+    # 0 = pure centerline (conservative), 1 = pure raceline (aggressive)
+    if racetrack.raceline is not None and ctrl_params.raceline_blend > 0:
+        blend = ctrl_params.raceline_blend
+        raceline = (1 - blend) * racetrack.centerline + blend * racetrack.raceline
+    else:
+        raceline = racetrack.centerline
 
     # Find closest point on raceline (use hint for optimization)
     closest_idx = find_closest_point(position, raceline, start_idx=closest_idx_hint)
@@ -321,6 +569,7 @@ def controller(
     # =========================================================================
 
     # Compute velocity-dependent lookahead distance
+    # Lower lookahead at low speeds for better cornering precision
     lookahead_dist = ctrl_params.lookahead_base + ctrl_params.lookahead_gain * abs(current_velocity)
 
     # Find lookahead point
@@ -351,18 +600,21 @@ def controller(
     desired_steering = np.clip(desired_steering, -max_steering, max_steering)
 
     # =========================================================================
-    # CURVATURE-BASED VELOCITY
+    # PHYSICS-BASED VELOCITY PLANNING
     # =========================================================================
 
-    # Find max curvature in upcoming segment
-    max_curv = get_max_curvature_ahead(raceline, closest_idx, ctrl_params.brake_lookahead)
-
-    # Target velocity decreases with curvature
-    # v = V_MAX / (1 + K_CURVATURE * curvature)
-    desired_velocity = ctrl_params.v_max / (1.0 + ctrl_params.k_curvature * max_curv)
-
-    # Clamp velocity
-    desired_velocity = np.clip(desired_velocity, ctrl_params.v_min, ctrl_params.v_max)
+    # Use the velocity profile that considers braking distances and steering limits
+    desired_velocity = get_velocity_profile_ahead(
+        raceline,
+        closest_idx,
+        ctrl_params.brake_lookahead,
+        ctrl_params.v_max,
+        ctrl_params.v_min,
+        ctrl_params.k_curvature,
+        max_decel,
+        ctrl_params.decel_factor,
+        ctrl_params.steer_anticipation,
+    )
 
     desired_commands = np.array([desired_steering, desired_velocity])
 
