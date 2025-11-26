@@ -24,20 +24,21 @@ from simulator_headless import HeadlessSimulator
 # =============================================================================
 
 # Parameter ranges from ControllerParams docstrings
+# Bounds tuned based on CMA-ES convergence analysis
 PARAM_BOUNDS = {
-    "lookahead_base": (5.0, 40.0),
-    "lookahead_gain": (0.2, 1.5),
-    "v_max": (70.0, 100.0),
-    "k_curvature": (80.0, 400.0),
-    "brake_lookahead": (80.0, 250.0),
-    "v_min": (10.0, 25.0),
-    "kp_steer": (1.0, 6.0),
-    "kp_vel": (2.0, 12.0),
-    "decel_factor": (0.4, 0.9),
-    "steer_anticipation": (1.0, 5.0),
-    "raceline_blend": (0.0, 1.0),  # 0 = centerline, 1 = raceline
-    "straight_lookahead_mult": (1.5, 4.0),  # Lookahead multiplier on straights
-    "corner_exit_boost": (1.0, 1.5),  # Velocity boost when exiting corners
+    "lookahead_base": (5.0, 30.0),
+    "lookahead_gain": (0.1, 1.0),
+    "v_max": (90.0, 100.0),  # Keep high
+    "k_curvature": (40.0, 200.0),  # Not too aggressive to avoid chicane violations
+    "brake_lookahead": (150.0, 280.0),  # Tighter around optimal
+    "v_min": (10.0, 20.0),
+    "kp_steer": (3.0, 6.0),  # Tighter around optimal
+    "kp_vel": (1.5, 8.0),  # Lower min, optimizer wanted lower
+    "decel_factor": (0.5, 0.95),  # Allow more aggressive braking
+    "steer_anticipation": (0.8, 3.0),  # Need some anticipation for chicanes
+    "raceline_blend": (0.2, 0.8),  # Focus around 0.4 optimal
+    "straight_lookahead_mult": (1.2, 3.0),
+    "corner_exit_boost": (1.2, 1.8),  # Higher max for more aggressive exits
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())
@@ -113,7 +114,7 @@ def evaluate_fitness(genome: np.ndarray) -> float:
         if results["lap_finished"]:
             # Completed lap: fitness = sim time + violation penalty
             fitness = results["sim_time_elapsed"]
-            fitness += results["track_limit_violations"] * 5.0  # 5 second penalty per violation
+            fitness += results["track_limit_violations"] * 15.0  # 15 second penalty per violation
         else:
             # DNF: heavy penalty based on how much time elapsed
             # Cap at 500 to avoid extreme values

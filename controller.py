@@ -20,20 +20,21 @@ class ControllerParams:
     Default values provide reasonable baseline performance.
     """
 
-    lookahead_base: float = 15.0  # Base lookahead distance (m) - range: [5, 40]
-    lookahead_gain: float = 0.6  # Velocity scaling for lookahead - range: [0.2, 1.5]
-    v_max: float = 95.0  # Maximum target velocity (m/s) - range: [70, 100]
-    k_curvature: float = 180.0  # Curvature slowdown factor - range: [80, 400]
-    brake_lookahead: float = 150.0  # How far ahead to look for braking (m) - range: [80, 250]
-    v_min: float = 14.0  # Minimum velocity to maintain (m/s) - range: [10, 25]
-    kp_steer: float = 3.5  # Proportional gain for steering rate - range: [1, 6]
-    kp_vel: float = 6.0  # Proportional gain for acceleration - range: [2, 12]
-    # New parameters for improved velocity planning
-    decel_factor: float = 0.65  # Fraction of max decel to use for braking - range: [0.4, 0.9]
-    steer_anticipation: float = 2.5  # How much to slow for steering changes - range: [1.0, 5.0]
-    raceline_blend: float = 0.0  # Blend between centerline (0) and raceline (1) - range: [0.0, 1.0]
-    straight_lookahead_mult: float = 2.5  # Lookahead multiplier on straights - range: [1.5, 4.0]
-    corner_exit_boost: float = 1.2  # Velocity multiplier when exiting corners - range: [1.0, 1.5]
+    # Defaults tuned from CMA-ES optimization
+    lookahead_base: float = 8.5  # Base lookahead distance (m) - range: [5, 30]
+    lookahead_gain: float = 0.22  # Velocity scaling for lookahead - range: [0.1, 1.0]
+    v_max: float = 98.0  # Maximum target velocity (m/s) - range: [90, 100]
+    k_curvature: float = 80.0  # Curvature slowdown factor - range: [30, 200]
+    brake_lookahead: float = 240.0  # How far ahead to look for braking (m) - range: [150, 280]
+    v_min: float = 15.0  # Minimum velocity to maintain (m/s) - range: [10, 20]
+    kp_steer: float = 5.5  # Proportional gain for steering rate - range: [3, 6]
+    kp_vel: float = 2.5  # Proportional gain for acceleration - range: [1.5, 8]
+    # Velocity planning parameters
+    decel_factor: float = 0.70  # Fraction of max decel to use for braking - range: [0.5, 0.95]
+    steer_anticipation: float = 1.0  # How much to slow for steering changes - range: [0.5, 3.0]
+    raceline_blend: float = 0.4  # Blend between centerline (0) and raceline (1) - range: [0.2, 0.8]
+    straight_lookahead_mult: float = 1.6  # Lookahead multiplier on straights - range: [1.2, 3.0]
+    corner_exit_boost: float = 1.5  # Velocity multiplier when exiting corners - range: [1.2, 1.8]
 
     def __repr__(self) -> str:
         return (
