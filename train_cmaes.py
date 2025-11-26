@@ -36,6 +36,7 @@ PARAM_BOUNDS = {
     "decel_factor": (0.4, 0.9),
     "steer_anticipation": (1.0, 5.0),
     "raceline_blend": (0.0, 1.0),  # 0 = centerline, 1 = raceline
+    "straight_lookahead_mult": (1.5, 4.0),  # Lookahead multiplier on straights
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())

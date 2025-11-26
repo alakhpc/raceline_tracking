@@ -32,6 +32,7 @@ class ControllerParams:
     decel_factor: float = 0.65  # Fraction of max decel to use for braking - range: [0.4, 0.9]
     steer_anticipation: float = 2.5  # How much to slow for steering changes - range: [1.0, 5.0]
     raceline_blend: float = 0.0  # Blend between centerline (0) and raceline (1) - range: [0.0, 1.0]
+    straight_lookahead_mult: float = 2.5  # Lookahead multiplier on straights - range: [1.5, 4.0]
 
     def __repr__(self) -> str:
         return (
@@ -46,7 +47,8 @@ class ControllerParams:
             f"  kp_vel={self.kp_vel:.2f},\n"
             f"  decel_factor={self.decel_factor:.2f},\n"
             f"  steer_anticipation={self.steer_anticipation:.2f},\n"
-            f"  raceline_blend={self.raceline_blend:.2f}\n"
+            f"  raceline_blend={self.raceline_blend:.2f},\n"
+            f"  straight_lookahead_mult={self.straight_lookahead_mult:.2f}\n"
             f")"
         )
 
@@ -568,9 +570,21 @@ def controller(
     # PURE PURSUIT STEERING
     # =========================================================================
 
+    # Get local curvature to detect straights vs corners
+    n = len(raceline)
+    prev_idx = (closest_idx - 1) % n
+    next_idx = (closest_idx + 1) % n
+    local_curvature = compute_curvature(raceline[prev_idx], raceline[closest_idx], raceline[next_idx])
+
     # Compute velocity-dependent lookahead distance
-    # Lower lookahead at low speeds for better cornering precision
-    lookahead_dist = ctrl_params.lookahead_base + ctrl_params.lookahead_gain * abs(current_velocity)
+    # Use longer lookahead on straights to reduce oscillation
+    base_lookahead = ctrl_params.lookahead_base + ctrl_params.lookahead_gain * abs(current_velocity)
+
+    # On straights (low curvature), multiply lookahead to smooth path following
+    # Curvature < 0.005 is roughly a straight (radius > 200m)
+    straight_factor = 1.0 / (1.0 + 500.0 * local_curvature)  # Smooth transition
+    lookahead_mult = 1.0 + (ctrl_params.straight_lookahead_mult - 1.0) * straight_factor
+    lookahead_dist = base_lookahead * lookahead_mult
 
     # Find lookahead point
     lookahead_point = find_lookahead_point(position, raceline, closest_idx, lookahead_dist)
