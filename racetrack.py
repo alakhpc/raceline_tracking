@@ -25,10 +25,18 @@ class RaceTrack:
         # Try to load optimized raceline if it exists
         track_path = Path(filepath)
         raceline_path = track_path.parent / f"{track_path.stem}_raceline.csv"
+
+        # Also check TUM-style raceline location (racelines folder sibling to tracks)
+        tum_raceline_path = track_path.parent.parent / "racelines" / f"{track_path.stem}.csv"
+
         if raceline_path.exists():
             raceline_data = np.loadtxt(raceline_path, comments="#", delimiter=",")
             self.raceline = raceline_data[:, 0:2]
             # Wrap raceline for continuity
+            self.raceline = np.vstack((self.raceline[-1], self.raceline, self.raceline[0]))
+        elif tum_raceline_path.exists():
+            raceline_data = np.loadtxt(tum_raceline_path, comments="#", delimiter=",")
+            self.raceline = raceline_data[:, 0:2]
             self.raceline = np.vstack((self.raceline[-1], self.raceline, self.raceline[0]))
         else:
             # Fall back to centerline if no raceline file
