@@ -79,7 +79,15 @@ ALL_TRACKS = {
     "Zandvoort": ("tum_tracks/tracks/Zandvoort.csv", "tum_tracks/racelines/Zandvoort.csv"),
 }
 
-BASE_TRAINING_TRACKS = ["IMS", "Montreal", "Monza", "Shanghai"]
+# Diverse track selection covering the full spectrum of characteristics:
+# - IMS: High-speed oval, gentle constant-radius curves
+# - Monza: Power circuit, long straights + heavy braking chicanes
+# - Norisring: Extremely tight, low-speed hairpins
+# - Suzuka: Technical flowing corners, figure-8 layout
+# - Spa: Fast sweeping corners + heavy braking (Eau Rouge, Bus Stop)
+# - Budapest: Continuous direction changes, twisty
+# - Shanghai: Unusual corner geometry (long decreasing-radius hairpin)
+BASE_TRAINING_TRACKS = ["IMS", "Monza", "Norisring", "Suzuka", "Spa", "Budapest", "Shanghai"]
 CONFIG_FILE = "controller_config.json"
 VIOLATION_PENALTY = 100.0  # Heavy penalty to ensure clean laps are always preferred
 

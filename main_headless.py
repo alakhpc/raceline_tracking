@@ -158,12 +158,18 @@ if __name__ == "__main__":
     print("=" * 100)
 
     # Summary
+    n_tracks = len(results_table)
+    avg_base_time = total_base_time / n_tracks if n_tracks > 0 else 0
+
     print(f"\nBase totals: {total_base_time:.2f}s | {total_base_violations} violations")
+    print(f"Base average: {avg_base_time:.2f}s per track ({n_tracks} tracks)")
 
     if n_with_specific > 0:
+        avg_specific_time = total_specific_time / n_with_specific
         print(
-            f"Specific totals ({n_with_specific} tracks): {total_specific_time:.2f}s | {total_specific_violations} violations"
+            f"\nSpecific totals ({n_with_specific} tracks): {total_specific_time:.2f}s | {total_specific_violations} violations"
         )
+        print(f"Specific average: {avg_specific_time:.2f}s per track")
         print(
             f"  Improved: {n_improved} | Regressed: {n_regressed} | Unchanged: {n_with_specific - n_improved - n_regressed}"
         )
