@@ -55,17 +55,10 @@ class ControllerConfig:
 
     def get_params(self, track: RaceTrack) -> ControllerParams:
         """Get optimal parameters based on track heuristics."""
-        track_id = id(track)
-        first_lookup = track_id not in _heuristics_cache
-
         heuristics = self.get_track_heuristics(track)
         if heuristics in self.track_params:
-            if first_lookup:
-                print(f"Using track-specific config ({heuristics})")
             return self.track_params[heuristics]
         else:
-            if first_lookup:
-                print(f"Using base config (heuristics {heuristics} not found)")
             return self.base_params
 
 
