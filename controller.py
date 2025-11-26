@@ -41,25 +41,26 @@ def get_fingerprint_from_path(track_path: str) -> str:
 class ControllerParams:
     """
     Controller parameters that can be tuned.
-    Defaults are centered in PARAM_BOUNDS for unbiased CMA-ES exploration.
+    Defaults are based on what works well across tracks. Bounds are very relaxed
+    for track-specific tuning - see train_cmaes.py PARAM_BOUNDS.
     """
 
     # Lookahead and speed limits
-    lookahead_base: float = 17.5  # Base lookahead distance (m) - range: [5, 30]
-    lookahead_gain: float = 0.55  # Velocity scaling for lookahead - range: [0.1, 1.0]
-    v_max: float = 95.0  # Maximum target velocity (m/s) - range: [90, 100]
-    k_curvature: float = 120.0  # Curvature slowdown factor - range: [40, 200]
-    brake_lookahead: float = 215.0  # How far ahead to look for braking (m) - range: [150, 280]
-    v_min: float = 15.0  # Minimum velocity to maintain (m/s) - range: [10, 20]
+    lookahead_base: float = 15.0  # Base lookahead distance (m)
+    lookahead_gain: float = 0.2  # Velocity scaling for lookahead
+    v_max: float = 100.0  # Maximum target velocity (m/s)
+    k_curvature: float = 42.0  # Curvature slowdown factor
+    brake_lookahead: float = 180.0  # How far ahead to look for braking (m)
+    v_min: float = 12.0  # Minimum velocity to maintain (m/s)
     # Control gains
-    kp_steer: float = 4.5  # Proportional gain for steering rate - range: [3, 6]
-    kp_vel: float = 4.75  # Proportional gain for acceleration - range: [1.5, 8]
+    kp_steer: float = 5.9  # Proportional gain for steering rate
+    kp_vel: float = 4.0  # Proportional gain for acceleration
     # Velocity planning parameters
-    decel_factor: float = 0.725  # Fraction of max decel to use for braking - range: [0.5, 0.95]
-    steer_anticipation: float = 1.9  # How much to slow for steering changes - range: [0.8, 3.0]
-    raceline_blend: float = 0.5  # Blend between centerline (0) and raceline (1) - range: [0.2, 0.8]
-    straight_lookahead_mult: float = 2.1  # Lookahead multiplier on straights - range: [1.2, 3.0]
-    corner_exit_boost: float = 1.5  # Velocity multiplier when exiting corners - range: [1.2, 1.8]
+    decel_factor: float = 0.8  # Fraction of max decel to use for braking
+    steer_anticipation: float = 0.9  # How much to slow for steering changes
+    raceline_blend: float = 0.7  # Blend between centerline (0) and raceline (1)
+    straight_lookahead_mult: float = 1.6  # Lookahead multiplier on straights
+    corner_exit_boost: float = 1.5  # Velocity multiplier when exiting corners
 
     def __repr__(self) -> str:
         return (
@@ -129,8 +130,16 @@ class ControllerConfig:
             fingerprint = get_track_fingerprint(track)
 
         if fingerprint and fingerprint in self.overrides:
-            return self.base.merge_with(self.overrides[fingerprint])
+            # Filter out metadata keys (underscore-prefixed)
+            params_only = {k: v for k, v in self.overrides[fingerprint].items() if not k.startswith("_")}
+            return self.base.merge_with(params_only)
         return self.base
+
+    def get_metadata(self, fingerprint: str) -> dict:
+        """Get metadata for a specific track fingerprint."""
+        if fingerprint in self.overrides:
+            return {k[1:]: v for k, v in self.overrides[fingerprint].items() if k.startswith("_")}
+        return {}
 
     def set_override(self, fingerprint: str, params: ControllerParams) -> None:
         """Set override parameters for a specific track fingerprint."""
@@ -143,9 +152,14 @@ class ControllerConfig:
         elif fingerprint in self.overrides:
             del self.overrides[fingerprint]
 
-    def set_full_override(self, fingerprint: str, params: ControllerParams) -> None:
+    def set_full_override(self, fingerprint: str, params: ControllerParams, metadata: dict = None) -> None:
         """Set full override parameters for a specific track fingerprint (all params, not just diff)."""
-        self.overrides[fingerprint] = params.to_dict()
+        override = params.to_dict()
+        if metadata:
+            # Store metadata with underscore prefix
+            for key, value in metadata.items():
+                override[f"_{key}"] = value
+        self.overrides[fingerprint] = override
 
     def to_file(self, path: str | Path) -> None:
         """Save configuration to a JSON file."""

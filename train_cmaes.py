@@ -28,20 +28,22 @@ from simulator_headless import HeadlessSimulator
 # CONFIGURATION
 # =============================================================================
 
+# Extremely relaxed bounds for track-specific tuning
+# These values are only used per-track, so we give the optimizer maximum freedom
 PARAM_BOUNDS = {
-    "lookahead_base": (5.0, 30.0),
-    "lookahead_gain": (0.1, 1.0),
-    "v_max": (90.0, 100.0),
-    "k_curvature": (40.0, 200.0),
-    "brake_lookahead": (150.0, 280.0),
-    "v_min": (10.0, 20.0),
-    "kp_steer": (3.0, 6.0),
-    "kp_vel": (1.5, 8.0),
-    "decel_factor": (0.5, 0.95),
-    "steer_anticipation": (0.8, 3.0),
-    "raceline_blend": (0.2, 0.8),
-    "straight_lookahead_mult": (1.2, 3.0),
-    "corner_exit_boost": (1.2, 1.8),
+    "lookahead_base": (1.0, 100.0),
+    "lookahead_gain": (0.0, 3.0),
+    "v_max": (50.0, 200.0),
+    "k_curvature": (1.0, 500.0),
+    "brake_lookahead": (20.0, 500.0),
+    "v_min": (1.0, 50.0),
+    "kp_steer": (0.5, 20.0),
+    "kp_vel": (0.1, 20.0),
+    "decel_factor": (0.1, 1.0),
+    "steer_anticipation": (0.0, 10.0),
+    "raceline_blend": (0.0, 1.0),
+    "straight_lookahead_mult": (0.5, 10.0),
+    "corner_exit_boost": (0.5, 5.0),
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())
@@ -79,7 +81,7 @@ ALL_TRACKS = {
 
 BASE_TRAINING_TRACKS = ["IMS", "Montreal", "Monza", "Shanghai"]
 CONFIG_FILE = "controller_config.json"
-VIOLATION_PENALTY = 20.0
+VIOLATION_PENALTY = 100.0  # Heavy penalty to ensure clean laps are always preferred
 
 # =============================================================================
 # GENOME CONVERSION
@@ -118,8 +120,14 @@ def evaluate_single_track(ctrl_params: ControllerParams, track_path: str, raceli
     results = sim.run(stop_on_violation=False)
 
     if results["lap_finished"]:
-        return results["sim_time_elapsed"] + results["track_limit_violations"] * VIOLATION_PENALTY
-    return 500.0 + results["track_limit_violations"] * 10.0
+        violations = results["track_limit_violations"]
+        base_time = results["sim_time_elapsed"]
+        # Any violation adds a large base penalty + per-violation cost
+        # This ensures clean laps always beat dirty laps
+        if violations > 0:
+            return base_time + 200.0 + violations * VIOLATION_PENALTY
+        return base_time
+    return 500.0 + results["track_limit_violations"] * 50.0
 
 
 def evaluate_fitness_base(genome: np.ndarray) -> float:
@@ -160,12 +168,17 @@ def evaluate_detailed(params: ControllerParams, track_names: list[str]) -> dict:
 # =============================================================================
 
 
-def save_config(config: ControllerConfig, params: ControllerParams, fingerprint: str | None):
+def save_config(
+    config: ControllerConfig,
+    params: ControllerParams,
+    fingerprint: str | None,
+    metadata: dict = None,
+):
     """Save params to config - base if fingerprint is None, otherwise as override."""
     if fingerprint is None:
         config.base = params
     else:
-        config.set_full_override(fingerprint, params)
+        config.set_full_override(fingerprint, params, metadata=metadata)
     config.to_file(CONFIG_FILE)
 
 
@@ -243,9 +256,14 @@ Examples:
     print("Starting optimization...\n")
 
     best_fitness, best_genome = float("inf"), None
+    final_generation = 0
+
+    # Metadata for track-specific configs
+    metadata = {"friendly_name": track_name, "generations": 0} if track_name else None
 
     with cma.fitness_transformations.EvalParallel2(evaluate_fn, n_workers) as eval_parallel:
         for generation in range(1, args.generations + 1):
+            final_generation = generation
             solutions = es.ask()
             fitnesses = eval_parallel(solutions)
 
@@ -262,7 +280,9 @@ Examples:
             )
 
             if best_genome is not None:
-                save_config(config, genome_to_params(best_genome), fingerprint)
+                if metadata:
+                    metadata["generations"] = generation
+                save_config(config, genome_to_params(best_genome), fingerprint, metadata)
 
             if es.stop():
                 break
@@ -275,7 +295,9 @@ Examples:
     best_params = genome_to_params(best_genome if best_genome is not None else es.result.xbest)
     print(f"\nBest fitness: {best_fitness:.2f}\n\nBest parameters:\n{best_params}")
 
-    save_config(config, best_params, fingerprint)
+    if metadata:
+        metadata["generations"] = final_generation
+    save_config(config, best_params, fingerprint, metadata)
     print(f"\nConfig saved to {CONFIG_FILE}")
 
     # Detailed evaluation
