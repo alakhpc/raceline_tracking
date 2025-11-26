@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import matplotlib.axes as axes
 import matplotlib.patches as patches
 import matplotlib.path as path
@@ -17,30 +15,15 @@ def resample(path_arr: np.ndarray, n: int) -> np.ndarray:
 
 
 class RaceTrack:
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, raceline_path: str):
         data = np.loadtxt(filepath, comments="#", delimiter=",")
         self.centerline = data[:, 0:2]
         self.centerline = np.vstack((self.centerline[-1], self.centerline, self.centerline[0]))
 
-        # Try to load optimized raceline if it exists
-        track_path = Path(filepath)
-        raceline_path = track_path.parent / f"{track_path.stem}_raceline.csv"
-
-        # Also check TUM-style raceline location (racelines folder sibling to tracks)
-        tum_raceline_path = track_path.parent.parent / "racelines" / f"{track_path.stem}.csv"
-
-        if raceline_path.exists():
-            raceline_data = np.loadtxt(raceline_path, comments="#", delimiter=",")
-            self.raceline = raceline_data[:, 0:2]
-            # Wrap raceline for continuity
-            self.raceline = np.vstack((self.raceline[-1], self.raceline, self.raceline[0]))
-        elif tum_raceline_path.exists():
-            raceline_data = np.loadtxt(tum_raceline_path, comments="#", delimiter=",")
-            self.raceline = raceline_data[:, 0:2]
-            self.raceline = np.vstack((self.raceline[-1], self.raceline, self.raceline[0]))
-        else:
-            # Fall back to centerline if no raceline file
-            self.raceline = None
+        # Load raceline
+        raceline_data = np.loadtxt(raceline_path, comments="#", delimiter=",")
+        self.raceline = raceline_data[:, 0:2]
+        self.raceline = np.vstack((self.raceline[-1], self.raceline, self.raceline[0]))
 
         centerline_gradient = np.gradient(self.centerline, axis=0)
         # Unfortunate Warning Print: https://github.com/numpy/numpy/issues/26620
@@ -53,12 +36,11 @@ class RaceTrack:
         self.centerline = np.delete(self.centerline, 0, axis=0)
         self.centerline = np.delete(self.centerline, -1, axis=0)
 
-        # Process raceline the same way if it exists
-        if self.raceline is not None:
-            self.raceline = np.delete(self.raceline, 0, axis=0)
-            self.raceline = np.delete(self.raceline, -1, axis=0)
-            # Resample raceline to match centerline length for blending
-            self.raceline = resample(self.raceline, len(self.centerline))
+        # Process raceline the same way
+        self.raceline = np.delete(self.raceline, 0, axis=0)
+        self.raceline = np.delete(self.raceline, -1, axis=0)
+        # Resample raceline to match centerline length for blending
+        self.raceline = resample(self.raceline, len(self.centerline))
 
         # Compute track left and right boundaries
         self.right_boundary = self.centerline[:, :2] + centerline_norm[:, :2] * np.expand_dims(data[:, 2], axis=1)

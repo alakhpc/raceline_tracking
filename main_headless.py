@@ -4,37 +4,37 @@ from controller import ControllerParams
 from racetrack import RaceTrack
 from simulator_headless import HeadlessSimulator
 
-# Original tracks
+# Original tracks: (name, track_path, raceline_path)
 TRACKS = [
-    ("IMS", "racetracks/IMS.csv"),
-    ("Montreal", "racetracks/Montreal.csv"),
-    ("Monza", "racetracks/Monza.csv"),
+    ("IMS", "racetracks/IMS.csv", "racetracks/IMS_raceline.csv"),
+    ("Montreal", "racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv"),
+    ("Monza", "racetracks/Monza.csv", "racetracks/Monza_raceline.csv"),
 ]
 
-# TUM tracks (additional circuits)
+# TUM tracks (additional circuits): (name, track_path, raceline_path)
 TUM_TRACKS = [
-    ("Austin", "tum_tracks/tracks/Austin.csv"),
-    ("BrandsHatch", "tum_tracks/tracks/BrandsHatch.csv"),
-    ("Budapest", "tum_tracks/tracks/Budapest.csv"),
-    ("Catalunya", "tum_tracks/tracks/Catalunya.csv"),
-    ("Hockenheim", "tum_tracks/tracks/Hockenheim.csv"),
-    ("Melbourne", "tum_tracks/tracks/Melbourne.csv"),
-    ("MexicoCity", "tum_tracks/tracks/MexicoCity.csv"),
-    ("MoscowRaceway", "tum_tracks/tracks/MoscowRaceway.csv"),
-    ("Norisring", "tum_tracks/tracks/Norisring.csv"),
-    ("Nuerburgring", "tum_tracks/tracks/Nuerburgring.csv"),
-    ("Oschersleben", "tum_tracks/tracks/Oschersleben.csv"),
-    ("Sakhir", "tum_tracks/tracks/Sakhir.csv"),
-    ("SaoPaulo", "tum_tracks/tracks/SaoPaulo.csv"),
-    ("Sepang", "tum_tracks/tracks/Sepang.csv"),
-    ("Shanghai", "tum_tracks/tracks/Shanghai.csv"),
-    ("Silverstone", "tum_tracks/tracks/Silverstone.csv"),
-    ("Sochi", "tum_tracks/tracks/Sochi.csv"),
-    ("Spa", "tum_tracks/tracks/Spa.csv"),
-    ("Spielberg", "tum_tracks/tracks/Spielberg.csv"),
-    ("Suzuka", "tum_tracks/tracks/Suzuka.csv"),
-    ("YasMarina", "tum_tracks/tracks/YasMarina.csv"),
-    ("Zandvoort", "tum_tracks/tracks/Zandvoort.csv"),
+    ("Austin", "tum_tracks/tracks/Austin.csv", "tum_tracks/racelines/Austin.csv"),
+    ("BrandsHatch", "tum_tracks/tracks/BrandsHatch.csv", "tum_tracks/racelines/BrandsHatch.csv"),
+    ("Budapest", "tum_tracks/tracks/Budapest.csv", "tum_tracks/racelines/Budapest.csv"),
+    ("Catalunya", "tum_tracks/tracks/Catalunya.csv", "tum_tracks/racelines/Catalunya.csv"),
+    ("Hockenheim", "tum_tracks/tracks/Hockenheim.csv", "tum_tracks/racelines/Hockenheim.csv"),
+    ("Melbourne", "tum_tracks/tracks/Melbourne.csv", "tum_tracks/racelines/Melbourne.csv"),
+    ("MexicoCity", "tum_tracks/tracks/MexicoCity.csv", "tum_tracks/racelines/MexicoCity.csv"),
+    ("MoscowRaceway", "tum_tracks/tracks/MoscowRaceway.csv", "tum_tracks/racelines/MoscowRaceway.csv"),
+    ("Norisring", "tum_tracks/tracks/Norisring.csv", "tum_tracks/racelines/Norisring.csv"),
+    ("Nuerburgring", "tum_tracks/tracks/Nuerburgring.csv", "tum_tracks/racelines/Nuerburgring.csv"),
+    ("Oschersleben", "tum_tracks/tracks/Oschersleben.csv", "tum_tracks/racelines/Oschersleben.csv"),
+    ("Sakhir", "tum_tracks/tracks/Sakhir.csv", "tum_tracks/racelines/Sakhir.csv"),
+    ("SaoPaulo", "tum_tracks/tracks/SaoPaulo.csv", "tum_tracks/racelines/SaoPaulo.csv"),
+    ("Sepang", "tum_tracks/tracks/Sepang.csv", "tum_tracks/racelines/Sepang.csv"),
+    ("Shanghai", "tum_tracks/tracks/Shanghai.csv", "tum_tracks/racelines/Shanghai.csv"),
+    ("Silverstone", "tum_tracks/tracks/Silverstone.csv", "tum_tracks/racelines/Silverstone.csv"),
+    ("Sochi", "tum_tracks/tracks/Sochi.csv", "tum_tracks/racelines/Sochi.csv"),
+    ("Spa", "tum_tracks/tracks/Spa.csv", "tum_tracks/racelines/Spa.csv"),
+    ("Spielberg", "tum_tracks/tracks/Spielberg.csv", "tum_tracks/racelines/Spielberg.csv"),
+    ("Suzuka", "tum_tracks/tracks/Suzuka.csv", "tum_tracks/racelines/Suzuka.csv"),
+    ("YasMarina", "tum_tracks/tracks/YasMarina.csv", "tum_tracks/racelines/YasMarina.csv"),
+    ("Zandvoort", "tum_tracks/tracks/Zandvoort.csv", "tum_tracks/racelines/Zandvoort.csv"),
 ]
 
 if __name__ == "__main__":
@@ -48,12 +48,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tum",
         action="store_true",
-        help="Include TUM tracks (22 additional circuits)",
-    )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Run all available tracks",
+        help="Include TUM tracks (runs all 25 tracks: 3 original + 22 TUM)",
     )
 
     args = parser.parse_args()
@@ -64,18 +59,16 @@ if __name__ == "__main__":
         print(f"Using controller parameters from {args.config}:\n{ctrl_params}")
 
     # Select which tracks to run
-    if args.all:
+    if args.tum:
         tracks_to_run = TRACKS + TUM_TRACKS
-    elif args.tum:
-        tracks_to_run = TUM_TRACKS
     else:
         tracks_to_run = TRACKS
 
     results_table = []
 
-    for track_name, track_path in tracks_to_run:
+    for track_name, track_path, raceline_path in tracks_to_run:
         print(f"Running simulation on {track_name}...")
-        racetrack = RaceTrack(track_path)
+        racetrack = RaceTrack(track_path, raceline_path)
         simulator = HeadlessSimulator(racetrack, ctrl_params=ctrl_params)
         results = simulator.run()
         results_table.append(

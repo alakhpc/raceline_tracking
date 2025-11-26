@@ -7,6 +7,7 @@ from simulator import Simulator, plt
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run racing simulator with visualization")
     parser.add_argument("track", type=str, help="Path to track CSV file")
+    parser.add_argument("raceline", type=str, help="Path to raceline CSV file")
     parser.add_argument(
         "--config",
         type=str,
@@ -16,7 +17,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    racetrack = RaceTrack(args.track)
+    racetrack = RaceTrack(args.track, args.raceline)
 
     ctrl_params = None
     if args.config:

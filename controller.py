@@ -560,11 +560,8 @@ def controller(
 
     # Blend between centerline and raceline based on raceline_blend parameter
     # 0 = pure centerline (conservative), 1 = pure raceline (aggressive)
-    if racetrack.raceline is not None and ctrl_params.raceline_blend > 0:
-        blend = ctrl_params.raceline_blend
-        raceline = (1 - blend) * racetrack.centerline + blend * racetrack.raceline
-    else:
-        raceline = racetrack.centerline
+    blend = ctrl_params.raceline_blend
+    raceline = (1 - blend) * racetrack.centerline + blend * racetrack.raceline
 
     # Find closest point on raceline (use hint for optimization)
     closest_idx = find_closest_point(position, raceline, start_idx=closest_idx_hint)
