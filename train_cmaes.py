@@ -1,12 +1,15 @@
 """
 CMA-ES training script for controller parameter optimization.
 
-Optimized for evaluation on: IMS, Montreal, Monza + 2 random tracks.
+Training modes:
+- base: Train on core tracks (IMS, Montreal, Monza) + Shanghai for generalization
+- <track_name>: Train on a specific single track (e.g., Austin, Spa)
 
-Strategy:
-- Core tracks (IMS, Montreal, Monza) weighted 3x since they're guaranteed
-- Diverse selection of other tracks for generalization to unknowns
-- Tracks categorized by characteristics for balanced coverage
+Configuration is saved to controller_config.json in the format:
+{
+    "base": { ...base parameters... },
+    "<fingerprint>": { ...track-specific overrides... }
+}
 """
 
 import argparse
@@ -17,12 +20,12 @@ from pathlib import Path
 import cma
 import numpy as np
 
-from controller import ControllerParams
+from controller import ControllerConfig, ControllerParams, get_fingerprint_from_path
 from racetrack import RaceTrack
 from simulator_headless import HeadlessSimulator
 
 # =============================================================================
-# PARAMETER BOUNDS
+# CONFIGURATION
 # =============================================================================
 
 PARAM_BOUNDS = {
@@ -43,91 +46,40 @@ PARAM_BOUNDS = {
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())
 
-# =============================================================================
-# TRACK DEFINITIONS - Categorized for optimal training
-# =============================================================================
-
-# Format: (name, track_path, raceline_path, weight)
-# Weight determines importance in fitness calculation
-
-# CORE TRACKS - These are guaranteed in evaluation, weight heavily
-CORE_TRACKS = [
-    ("IMS", "racetracks/IMS.csv", "racetracks/IMS_raceline.csv", 3.0),
-    # ("Montreal", "racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv", 3.0),
-    # ("Monza", "racetracks/Monza.csv", "racetracks/Monza_raceline.csv", 3.0),
-]
-
-# HIGH-SPEED TRACKS - Long straights, fast corners (helps generalize Monza-like tracks)
-HIGH_SPEED_TRACKS = [
-    ("Spa", "tum_tracks/tracks/Spa.csv", "tum_tracks/racelines/Spa.csv", 1.0),
-    ("Silverstone", "tum_tracks/tracks/Silverstone.csv", "tum_tracks/racelines/Silverstone.csv", 1.0),
-]
-
-# TECHNICAL TRACKS - Tight corners, chicanes (helps generalize Montreal-like tracks)
-TECHNICAL_TRACKS = [
-    ("Budapest", "tum_tracks/tracks/Budapest.csv", "tum_tracks/racelines/Budapest.csv", 1.0),
-    ("Zandvoort", "tum_tracks/tracks/Zandvoort.csv", "tum_tracks/racelines/Zandvoort.csv", 1.0),
-    ("Norisring", "tum_tracks/tracks/Norisring.csv", "tum_tracks/racelines/Norisring.csv", 1.0),
-]
-
-# MIXED/COMPLEX TRACKS - Variety of corner types (helps generalize IMS-like tracks)
-MIXED_TRACKS = [
-    ("Shanghai", "tum_tracks/tracks/Shanghai.csv", "tum_tracks/racelines/Shanghai.csv", 1.5),
-    ("Suzuka", "tum_tracks/tracks/Suzuka.csv", "tum_tracks/racelines/Suzuka.csv", 1.0),
-    ("Austin", "tum_tracks/tracks/Austin.csv", "tum_tracks/racelines/Austin.csv", 1.0),
-]
-
-# STREET-LIKE TRACKS - Narrow, unforgiving (edge cases)
-STREET_TRACKS = [
-    ("Melbourne", "tum_tracks/tracks/Melbourne.csv", "tum_tracks/racelines/Melbourne.csv", 1.0),
-    ("Sochi", "tum_tracks/tracks/Sochi.csv", "tum_tracks/racelines/Sochi.csv", 1.0),
-]
-
-# =============================================================================
-# TRAINING PRESETS
-# =============================================================================
-
-PRESETS = {
-    # Minimal: Just core tracks + 1 from each category (6 tracks)
-    # Good for quick iteration
-    "minimal": CORE_TRACKS
-    + [
-        HIGH_SPEED_TRACKS[0],  # Spa
-        TECHNICAL_TRACKS[0],  # Budapest
-        MIXED_TRACKS[0],  # Suzuka
-    ],
-    # Balanced: Core + good coverage (9 tracks) - RECOMMENDED
-    # Best trade-off between speed and generalization
-    "balanced": CORE_TRACKS
-    + [
-        HIGH_SPEED_TRACKS[0],  # Spa
-        HIGH_SPEED_TRACKS[1],  # Silverstone
-        TECHNICAL_TRACKS[0],  # Budapest
-        TECHNICAL_TRACKS[1],  # Zandvoort
-        MIXED_TRACKS[0],  # Suzuka
-        MIXED_TRACKS[1],  # Austin
-    ],
-    # Comprehensive: Core + broad coverage (12 tracks)
-    # For final training when you want maximum generalization
-    "comprehensive": CORE_TRACKS
-    + [
-        HIGH_SPEED_TRACKS[0],
-        HIGH_SPEED_TRACKS[1],
-        TECHNICAL_TRACKS[0],
-        TECHNICAL_TRACKS[1],
-        TECHNICAL_TRACKS[2],
-        MIXED_TRACKS[0],
-        MIXED_TRACKS[1],
-        STREET_TRACKS[0],
-        STREET_TRACKS[1],
-    ],
-    # Core only: Just the 3 guaranteed tracks
-    # Fast but may not generalize to random tracks
-    "core": CORE_TRACKS,
+# All available tracks: name -> (track_path, raceline_path)
+ALL_TRACKS = {
+    # Core tracks
+    "IMS": ("racetracks/IMS.csv", "racetracks/IMS_raceline.csv"),
+    "Montreal": ("racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv"),
+    "Monza": ("racetracks/Monza.csv", "racetracks/Monza_raceline.csv"),
+    # TUM tracks
+    "Austin": ("tum_tracks/tracks/Austin.csv", "tum_tracks/racelines/Austin.csv"),
+    "BrandsHatch": ("tum_tracks/tracks/BrandsHatch.csv", "tum_tracks/racelines/BrandsHatch.csv"),
+    "Budapest": ("tum_tracks/tracks/Budapest.csv", "tum_tracks/racelines/Budapest.csv"),
+    "Catalunya": ("tum_tracks/tracks/Catalunya.csv", "tum_tracks/racelines/Catalunya.csv"),
+    "Hockenheim": ("tum_tracks/tracks/Hockenheim.csv", "tum_tracks/racelines/Hockenheim.csv"),
+    "Melbourne": ("tum_tracks/tracks/Melbourne.csv", "tum_tracks/racelines/Melbourne.csv"),
+    "MexicoCity": ("tum_tracks/tracks/MexicoCity.csv", "tum_tracks/racelines/MexicoCity.csv"),
+    "MoscowRaceway": ("tum_tracks/tracks/MoscowRaceway.csv", "tum_tracks/racelines/MoscowRaceway.csv"),
+    "Norisring": ("tum_tracks/tracks/Norisring.csv", "tum_tracks/racelines/Norisring.csv"),
+    "Nuerburgring": ("tum_tracks/tracks/Nuerburgring.csv", "tum_tracks/racelines/Nuerburgring.csv"),
+    "Oschersleben": ("tum_tracks/tracks/Oschersleben.csv", "tum_tracks/racelines/Oschersleben.csv"),
+    "Sakhir": ("tum_tracks/tracks/Sakhir.csv", "tum_tracks/racelines/Sakhir.csv"),
+    "SaoPaulo": ("tum_tracks/tracks/SaoPaulo.csv", "tum_tracks/racelines/SaoPaulo.csv"),
+    "Sepang": ("tum_tracks/tracks/Sepang.csv", "tum_tracks/racelines/Sepang.csv"),
+    "Shanghai": ("tum_tracks/tracks/Shanghai.csv", "tum_tracks/racelines/Shanghai.csv"),
+    "Silverstone": ("tum_tracks/tracks/Silverstone.csv", "tum_tracks/racelines/Silverstone.csv"),
+    "Sochi": ("tum_tracks/tracks/Sochi.csv", "tum_tracks/racelines/Sochi.csv"),
+    "Spa": ("tum_tracks/tracks/Spa.csv", "tum_tracks/racelines/Spa.csv"),
+    "Spielberg": ("tum_tracks/tracks/Spielberg.csv", "tum_tracks/racelines/Spielberg.csv"),
+    "Suzuka": ("tum_tracks/tracks/Suzuka.csv", "tum_tracks/racelines/Suzuka.csv"),
+    "YasMarina": ("tum_tracks/tracks/YasMarina.csv", "tum_tracks/racelines/YasMarina.csv"),
+    "Zandvoort": ("tum_tracks/tracks/Zandvoort.csv", "tum_tracks/racelines/Zandvoort.csv"),
 }
 
-# Violation penalty (seconds added per violation)
-VIOLATION_PENALTY = 20.0  # High penalty to prioritize clean laps
+BASE_TRAINING_TRACKS = ["IMS", "Montreal", "Monza", "Shanghai"]
+CONFIG_FILE = "controller_config.json"
+VIOLATION_PENALTY = 20.0
 
 # =============================================================================
 # GENOME CONVERSION
@@ -136,23 +88,22 @@ VIOLATION_PENALTY = 20.0  # High penalty to prioritize clean laps
 
 def genome_to_params(genome: np.ndarray) -> ControllerParams:
     """Convert a normalized genome [0, 1]^N to ControllerParams."""
-    params = {}
-    for i, name in enumerate(PARAM_NAMES):
-        low, high = PARAM_BOUNDS[name]
-        val = np.clip(genome[i], 0.0, 1.0)
-        params[name] = low + val * (high - low)
+    params = {
+        name: PARAM_BOUNDS[name][0] + np.clip(genome[i], 0.0, 1.0) * (PARAM_BOUNDS[name][1] - PARAM_BOUNDS[name][0])
+        for i, name in enumerate(PARAM_NAMES)
+    }
     return ControllerParams(**params)
 
 
 def params_to_genome(params: ControllerParams) -> np.ndarray:
     """Convert ControllerParams to a normalized genome [0, 1]^N."""
-    genome = []
     params_dict = asdict(params)
-    for name in PARAM_NAMES:
-        low, high = PARAM_BOUNDS[name]
-        val = (params_dict[name] - low) / (high - low)
-        genome.append(val)
-    return np.array(genome)
+    return np.array(
+        [
+            (params_dict[name] - PARAM_BOUNDS[name][0]) / (PARAM_BOUNDS[name][1] - PARAM_BOUNDS[name][0])
+            for name in PARAM_NAMES
+        ]
+    )
 
 
 # =============================================================================
@@ -160,63 +111,39 @@ def params_to_genome(params: ControllerParams) -> np.ndarray:
 # =============================================================================
 
 
-def make_evaluate_fitness(track_list: list, violation_penalty: float):
-    """
-    Create a fitness evaluation function with tracks baked in.
-    This is needed for multiprocessing - the tracks must be defined
-    in the function itself, not passed via globals.
-    """
-    # Capture track_list in closure - but this won't work with multiprocessing
-    # So we'll just use the balanced preset directly in evaluate_fitness
-    pass
+def evaluate_single_track(ctrl_params: ControllerParams, track_path: str, raceline_path: str) -> float:
+    """Run simulation on a single track and return fitness score."""
+    track = RaceTrack(track_path, raceline_path)
+    sim = HeadlessSimulator(track, ctrl_params=ctrl_params)
+    results = sim.run(stop_on_violation=False)
+
+    if results["lap_finished"]:
+        return results["sim_time_elapsed"] + results["track_limit_violations"] * VIOLATION_PENALTY
+    return 500.0 + results["track_limit_violations"] * 10.0
 
 
-def evaluate_fitness(genome: np.ndarray) -> float:
-    """
-    Evaluate fitness using weighted track scores.
-
-    Uses the balanced preset by default for multiprocessing compatibility.
-    """
+def evaluate_fitness_base(genome: np.ndarray) -> float:
+    """Evaluate fitness for base training mode (core tracks + Shanghai)."""
     ctrl_params = genome_to_params(genome)
-
-    # Hardcode balanced preset for multiprocessing compatibility
-    track_list = [
-        ("IMS", "racetracks/IMS.csv", "racetracks/IMS_raceline.csv", 3.0),
-        ("Montreal", "racetracks/Montreal.csv", "racetracks/Montreal_raceline.csv", 3.0),
-        ("Monza", "racetracks/Monza.csv", "racetracks/Monza_raceline.csv", 3.0),
-        ("Spa", "tum_tracks/tracks/Spa.csv", "tum_tracks/racelines/Spa.csv", 1.0),
-        ("Silverstone", "tum_tracks/tracks/Silverstone.csv", "tum_tracks/racelines/Silverstone.csv", 1.0),
-        ("Budapest", "tum_tracks/tracks/Budapest.csv", "tum_tracks/racelines/Budapest.csv", 1.0),
-        ("Zandvoort", "tum_tracks/tracks/Zandvoort.csv", "tum_tracks/racelines/Zandvoort.csv", 1.0),
-        ("Suzuka", "tum_tracks/tracks/Suzuka.csv", "tum_tracks/racelines/Suzuka.csv", 1.5),
-        ("Austin", "tum_tracks/tracks/Austin.csv", "tum_tracks/racelines/Austin.csv", 1.0),
-    ]
-
-    total_weighted_fitness = 0.0
-    total_weight = 0.0
-
-    for name, track_path, raceline_path, weight in track_list:
-        track = RaceTrack(track_path, raceline_path)
-        sim = HeadlessSimulator(track, ctrl_params=ctrl_params)
-        results = sim.run(stop_on_violation=False)
-
-        if results["lap_finished"]:
-            fitness = results["sim_time_elapsed"]
-            fitness += results["track_limit_violations"] * VIOLATION_PENALTY
-        else:
-            # DNF: heavy penalty
-            fitness = 500.0 + results["track_limit_violations"] * 10.0
-
-        total_weighted_fitness += fitness * weight
-        total_weight += weight
-
-    return total_weighted_fitness / total_weight
+    total = sum(evaluate_single_track(ctrl_params, *ALL_TRACKS[name]) for name in BASE_TRAINING_TRACKS)
+    return total / len(BASE_TRAINING_TRACKS)
 
 
-def evaluate_detailed(params: ControllerParams, track_list: list) -> dict:
+class SingleTrackEvaluator:
+    """Picklable evaluator for a single track (needed for multiprocessing)."""
+
+    def __init__(self, track_name: str):
+        self.track_path, self.raceline_path = ALL_TRACKS[track_name]
+
+    def __call__(self, genome: np.ndarray) -> float:
+        return evaluate_single_track(genome_to_params(genome), self.track_path, self.raceline_path)
+
+
+def evaluate_detailed(params: ControllerParams, track_names: list[str]) -> dict:
     """Evaluate on tracks and return detailed per-track results."""
     results = {}
-    for name, track_path, raceline_path, weight in track_list:
+    for name in track_names:
+        track_path, raceline_path = ALL_TRACKS[name]
         track = RaceTrack(track_path, raceline_path)
         sim = HeadlessSimulator(track, ctrl_params=params)
         result = sim.run(stop_on_violation=False)
@@ -224,7 +151,6 @@ def evaluate_detailed(params: ControllerParams, track_list: list) -> dict:
             "time": result["sim_time_elapsed"],
             "violations": result["track_limit_violations"],
             "finished": result["lap_finished"],
-            "weight": weight,
         }
     return results
 
@@ -234,157 +160,144 @@ def evaluate_detailed(params: ControllerParams, track_list: list) -> dict:
 # =============================================================================
 
 
+def save_config(config: ControllerConfig, params: ControllerParams, fingerprint: str | None):
+    """Save params to config - base if fingerprint is None, otherwise as override."""
+    if fingerprint is None:
+        config.base = params
+    else:
+        config.set_full_override(fingerprint, params)
+    config.to_file(CONFIG_FILE)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Train controller using CMA-ES optimization.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Presets (optimized for evaluation on IMS, Montreal, Monza + 2 random):
-  core          3 tracks  - Just guaranteed tracks (fast, may not generalize)
-  minimal       6 tracks  - Core + 1 from each category (good for iteration)
-  balanced      9 tracks  - Core + good coverage (RECOMMENDED)
-  comprehensive 12 tracks - Maximum generalization (slow but robust)
+        epilog=f"""
+Training modes:
+  base          Train on core tracks ({", ".join(BASE_TRAINING_TRACKS)})
+  <track_name>  Train on a specific single track
+
+Available tracks: {", ".join(ALL_TRACKS.keys())}
 
 Examples:
-  %(prog)s --generations 100 --preset balanced
-  %(prog)s --generations 50 --preset minimal --resume
+  %(prog)s --generations 100 --mode base
+  %(prog)s --generations 50 --mode Austin --resume
         """,
     )
     parser.add_argument("--generations", type=int, required=True)
     parser.add_argument("--workers", type=int, default=0, help="0 = auto-detect CPU count")
-    parser.add_argument("--popsize", type=int, default=None)
+    parser.add_argument("--popsize", type=int, default=15)
     parser.add_argument(
-        "--preset",
-        choices=list(PRESETS.keys()),
-        default="balanced",
-        help="Track selection preset (default: balanced)",
+        "--mode",
+        choices=["base"] + list(ALL_TRACKS.keys()),
+        default="base",
+        help="Training mode: 'base' for core tracks, or a specific track name",
     )
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume from cmaes_winner.json instead of defaults",
+        help="Resume from existing config instead of defaults",
     )
     args = parser.parse_args()
 
-    # Select tracks based on preset (for display only - evaluate_fitness uses balanced)
-    track_list = PRESETS[args.preset]
+    is_base = args.mode == "base"
+    track_name = None if is_base else args.mode
+    fingerprint = None if is_base else get_fingerprint_from_path(ALL_TRACKS[track_name][0])
+    n_workers = args.workers or os.cpu_count() or 1
 
-    if args.preset != "balanced":
-        print(f"Note: --preset {args.preset} is for display only.")
-        print("      Fitness evaluation always uses 'balanced' preset for multiprocessing.")
-        print()
-
-    # Determine workers
-    n_workers = os.cpu_count() or 1 if args.workers == 0 else args.workers
-
-    # Calculate total weight for display
-    total_weight = sum(t[3] for t in track_list)
-    core_weight = sum(t[3] for t in track_list if t[3] >= 3.0)
-
+    # Header
     print("=" * 70)
     print("CMA-ES Controller Optimization")
     print("=" * 70)
-    print(f"Preset: {args.preset} ({len(track_list)} tracks)")
-    print(f"Generations: {args.generations}")
-    print(f"Workers: {n_workers}")
-    print(f"Violation penalty: {VIOLATION_PENALTY}s")
-    print(f"Core track weight: {core_weight:.0f}/{total_weight:.1f} ({100 * core_weight / total_weight:.0f}%)")
-    print("\nTrack selection:")
-    for name, _, _, weight in track_list:
-        weight_str = f" [weight: {weight}x]" if weight != 1.0 else ""
-        core_str = " ★ CORE" if weight >= 3.0 else ""
-        print(f"  • {name}{weight_str}{core_str}")
-    print()
-
-    # Initial genome - resume or start fresh
-    if args.resume and Path("cmaes_winner.json").exists():
-        print("Resuming from cmaes_winner.json...")
-        initial_params = ControllerParams.from_file("cmaes_winner.json")
-        sigma0 = 0.15  # Smaller step size when resuming
+    if is_base:
+        print(f"Mode: BASE ({len(BASE_TRAINING_TRACKS)} tracks: {', '.join(BASE_TRAINING_TRACKS)})")
     else:
-        initial_params = ControllerParams()
+        print(f"Mode: SINGLE TRACK ({track_name}) | Fingerprint: {fingerprint}")
+    print(f"Generations: {args.generations} | Workers: {n_workers} | Violation penalty: {VIOLATION_PENALTY}s\n")
+
+    # Load or create config
+    config = ControllerConfig.from_file(CONFIG_FILE) if Path(CONFIG_FILE).exists() else ControllerConfig()
+    print(f"{'Loaded' if Path(CONFIG_FILE).exists() else 'Created'} config: {CONFIG_FILE}")
+
+    # Initial parameters
+    if args.resume:
+        initial_params = config.base if is_base else config.get_params(fingerprint=fingerprint)
+        sigma0 = 0.15
+        print(f"Resuming from {'base' if is_base else fingerprint}...")
+    else:
+        initial_params = ControllerParams() if is_base else config.base
         sigma0 = 0.3
 
-    initial_genome = params_to_genome(initial_params)
     print(f"Initial params:\n{initial_params}\n")
 
     # CMA-ES setup
-    opts = {
-        "maxiter": args.generations,
-        "bounds": [0.0, 1.0],
-        "verbose": -1,
-        "verb_disp": 0,
-    }
+    opts = {"maxiter": args.generations, "bounds": [0.0, 1.0], "verbose": -1, "verb_disp": 0}
     if args.popsize:
         opts["popsize"] = args.popsize
 
-    es = cma.CMAEvolutionStrategy(initial_genome, sigma0, opts)
+    es = cma.CMAEvolutionStrategy(params_to_genome(initial_params), sigma0, opts)
+    evaluate_fn = evaluate_fitness_base if is_base else SingleTrackEvaluator(track_name)
+
     print(f"Population size: {es.popsize}")
     print("Starting optimization...\n")
 
-    generation = 0
-    best_fitness = float("inf")
-    best_genome = None
+    best_fitness, best_genome = float("inf"), None
 
-    with cma.fitness_transformations.EvalParallel2(evaluate_fitness, n_workers) as eval_parallel:
-        while not es.stop():
+    with cma.fitness_transformations.EvalParallel2(evaluate_fn, n_workers) as eval_parallel:
+        for generation in range(1, args.generations + 1):
             solutions = es.ask()
             fitnesses = eval_parallel(solutions)
 
-            # Track best
             for sol, fit in zip(solutions, fitnesses):
                 if fit < best_fitness:
-                    best_fitness = fit
-                    best_genome = sol.copy()
+                    best_fitness, best_genome = fit, sol.copy()
 
             es.tell(solutions, fitnesses)
-            generation += 1
 
-            # Progress output
             improved = "★" if best_fitness == min(fitnesses) else " "
             print(
                 f"Gen {generation:4d} {improved} | Best: {best_fitness:7.2f} | "
                 f"Mean: {np.mean(fitnesses):7.2f} | Min: {np.min(fitnesses):7.2f}"
             )
 
-            # Save best after each generation
             if best_genome is not None:
-                genome_to_params(best_genome).to_file("cmaes_winner.json")
+                save_config(config, genome_to_params(best_genome), fingerprint)
 
+            if es.stop():
+                break
+
+    # Final results
     print("\n" + "=" * 70)
     print("Optimization Complete!")
     print("=" * 70)
 
-    # Get best parameters
     best_params = genome_to_params(best_genome if best_genome is not None else es.result.xbest)
-    print(f"\nBest weighted fitness: {best_fitness:.2f}")
-    print(f"\nBest parameters:\n{best_params}")
-    best_params.to_file("cmaes_winner.json")
+    print(f"\nBest fitness: {best_fitness:.2f}\n\nBest parameters:\n{best_params}")
 
-    # Detailed per-track evaluation
+    save_config(config, best_params, fingerprint)
+    print(f"\nConfig saved to {CONFIG_FILE}")
+
+    # Detailed evaluation
     print("\n" + "-" * 70)
     print("Per-Track Results:")
     print("-" * 70)
-    results = evaluate_detailed(best_params, track_list)
 
-    total_time = 0
-    total_violations = 0
-    core_time = 0
-    core_violations = 0
+    eval_tracks = BASE_TRAINING_TRACKS if is_base else [track_name]
+    results = evaluate_detailed(best_params, eval_tracks)
 
+    total_time, total_violations = 0, 0
     for name, r in results.items():
         status = "✓" if r["finished"] and r["violations"] == 0 else "⚠" if r["finished"] else "✗"
-        weight_str = f" [{r['weight']}x]" if r["weight"] != 1.0 else ""
-        print(f"  {status} {name:20s} | Time: {r['time']:6.2f}s | Violations: {r['violations']}{weight_str}")
+        print(f"  {status} {name:20s} | Time: {r['time']:6.2f}s | Violations: {r['violations']}")
         total_time += r["time"]
         total_violations += r["violations"]
-        if r["weight"] >= 3.0:
-            core_time += r["time"]
-            core_violations += r["violations"]
 
     print("-" * 70)
-    print(f"  Core tracks (IMS/Montreal/Monza): {core_time:.2f}s | {core_violations} violations")
-    print(f"  All tracks total: {total_time:.2f}s | {total_violations} violations")
+    print(f"  Total: {total_time:.2f}s | {total_violations} violations")
+
+    if fingerprint:
+        print(f"\nTrack fingerprint saved: {fingerprint}")
 
 
 if __name__ == "__main__":

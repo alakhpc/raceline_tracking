@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Optional
 
@@ -7,6 +7,30 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from racetrack import RaceTrack
+
+
+def get_track_fingerprint(track: RaceTrack) -> str:
+    """
+    Generate a fingerprint for a track based on its first x,y coordinates.
+    Rounded to 3 decimal places for consistent matching.
+    """
+    x, y = track.centerline[0, 0], track.centerline[0, 1]
+    return f"{x:.3f}_{y:.3f}"
+
+
+def get_fingerprint_from_path(track_path: str) -> str:
+    """
+    Generate a fingerprint from a track file path without loading the full track.
+    """
+    with open(track_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                parts = line.split(",")
+                x, y = float(parts[0]), float(parts[1])
+                return f"{x:.3f}_{y:.3f}"
+    raise ValueError(f"No data found in {track_path}")
+
 
 # =============================================================================
 # CONTROLLER PARAMETERS
@@ -55,21 +79,95 @@ class ControllerParams:
             f")"
         )
 
-    def to_file(self, path: str | Path) -> None:
-        """Save controller parameters to a JSON file."""
-        with open(path, "w") as f:
-            json.dump(asdict(self), f, indent=2)
+    def to_dict(self) -> dict:
+        """Convert parameters to a dictionary."""
+        return asdict(self)
 
-    @classmethod
-    def from_file(cls, path: str | Path) -> "ControllerParams":
-        """Load controller parameters from a JSON file."""
-        with open(path) as f:
-            data = json.load(f)
-        return cls(**data)
+    def merge_with(self, overrides: dict) -> "ControllerParams":
+        """
+        Create a new ControllerParams with overrides applied.
+        Only overrides keys that exist in this dataclass.
+        """
+        base_dict = asdict(self)
+        valid_keys = {f.name for f in fields(self)}
+        for key, value in overrides.items():
+            if key in valid_keys:
+                base_dict[key] = value
+        return ControllerParams(**base_dict)
 
 
 # Default parameters (used when no ControllerParams is provided)
 DEFAULT_PARAMS = ControllerParams()
+
+
+class ControllerConfig:
+    """
+    Multi-track configuration with base parameters and per-track overrides.
+
+    Config file format:
+    {
+        "base": { ...base params... },
+        "fingerprint1": { ...override params... },
+        "fingerprint2": { ...override params... }
+    }
+
+    Fingerprints are generated from the first x,y coordinates of the track.
+    """
+
+    def __init__(self, base: ControllerParams = None, overrides: dict[str, dict] = None):
+        self.base = base or ControllerParams()
+        self.overrides = overrides or {}
+
+    def get_params(self, track: RaceTrack = None, fingerprint: str = None) -> ControllerParams:
+        """
+        Get parameters for a specific track.
+        If fingerprint matches an override, merge those overrides with base.
+        Otherwise, return base parameters.
+        """
+        if track is not None:
+            fingerprint = get_track_fingerprint(track)
+
+        if fingerprint and fingerprint in self.overrides:
+            return self.base.merge_with(self.overrides[fingerprint])
+        return self.base
+
+    def set_override(self, fingerprint: str, params: ControllerParams) -> None:
+        """Set override parameters for a specific track fingerprint."""
+        # Store only the differences from base
+        base_dict = self.base.to_dict()
+        params_dict = params.to_dict()
+        diff = {k: v for k, v in params_dict.items() if v != base_dict.get(k)}
+        if diff:
+            self.overrides[fingerprint] = diff
+        elif fingerprint in self.overrides:
+            del self.overrides[fingerprint]
+
+    def set_full_override(self, fingerprint: str, params: ControllerParams) -> None:
+        """Set full override parameters for a specific track fingerprint (all params, not just diff)."""
+        self.overrides[fingerprint] = params.to_dict()
+
+    def to_file(self, path: str | Path) -> None:
+        """Save configuration to a JSON file."""
+        data = {"base": self.base.to_dict()}
+        data.update(self.overrides)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "ControllerConfig":
+        """Load configuration from a JSON file."""
+        with open(path) as f:
+            data = json.load(f)
+
+        # Handle legacy format (flat params without "base" key)
+        if "base" not in data:
+            # Legacy format: treat entire file as base params
+            return cls(base=ControllerParams(**data), overrides={})
+
+        base_data = data.pop("base")
+        base = ControllerParams(**base_data)
+        overrides = data  # Remaining keys are fingerprint overrides
+        return cls(base=base, overrides=overrides)
 
 
 # =============================================================================

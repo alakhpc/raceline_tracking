@@ -1,0 +1,17 @@
+{
+  "base": {
+    "lookahead_base": 15.44245476146143,
+    "lookahead_gain": 0.10053441062402553,
+    "v_max": 99.86697933309446,
+    "k_curvature": 44.038361831089894,
+    "brake_lookahead": 235.78664531807863,
+    "v_min": 15.58237930256043,
+    "kp_steer": 5.968144514127344,
+    "kp_vel": 3.1395415374664255,
+    "decel_factor": 0.6050728342869203,
+    "steer_anticipation": 0.8002760718340097,
+    "raceline_blend": 0.20276504351424973,
+    "straight_lookahead_mult": 1.2689771674795747,
+    "corner_exit_boost": 1.2513175041713764
+  }
+}
