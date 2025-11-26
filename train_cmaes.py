@@ -37,6 +37,7 @@ PARAM_BOUNDS = {
     "steer_anticipation": (1.0, 5.0),
     "raceline_blend": (0.0, 1.0),  # 0 = centerline, 1 = raceline
     "straight_lookahead_mult": (1.5, 4.0),  # Lookahead multiplier on straights
+    "corner_exit_boost": (1.0, 1.5),  # Velocity boost when exiting corners
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())

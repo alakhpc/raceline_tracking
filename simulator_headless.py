@@ -117,7 +117,8 @@ class HeadlessSimulator:
             self.sim_time_elapsed += self.car.time_step
 
         self.update_status()
-        # Pass closest_idx to avoid recomputing it
+        # Note: closest_idx is for blended raceline, but since raceline is resampled
+        # to match centerline length, the indices align. Track limits use centerline.
         self.check_track_limits(closest_idx=closest_idx)
 
         # Stop immediately if violation occurs and stop_on_violation is True
@@ -165,4 +166,3 @@ class HeadlessSimulator:
             "track_limit_violations": self.track_limit_violations,
             "iterations": iterations,
         }
-

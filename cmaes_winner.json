@@ -1,14 +1,15 @@
 {
-  "lookahead_base": 6.98849273462413,
-  "lookahead_gain": 0.23341170838513153,
-  "v_max": 99.99839076576689,
-  "k_curvature": 80.11384447319733,
-  "brake_lookahead": 200.70988783677453,
-  "v_min": 14.303475855374707,
-  "kp_steer": 4.237161396668352,
-  "kp_vel": 8.465531981321826,
-  "decel_factor": 0.8380048657702527,
-  "steer_anticipation": 1.0015789408235185,
-  "raceline_blend": 0.4845422207194675,
-  "straight_lookahead_mult": 1.536892783104615
+  "lookahead_base": 8.486472186634687,
+  "lookahead_gain": 0.2145999277997034,
+  "v_max": 98.61967444315114,
+  "k_curvature": 80.26267645497103,
+  "brake_lookahead": 238.91409561489294,
+  "v_min": 14.755754974625923,
+  "kp_steer": 5.974613905339577,
+  "kp_vel": 2.000912733454466,
+  "decel_factor": 0.6906778462106986,
+  "steer_anticipation": 1.0058601548953057,
+  "raceline_blend": 0.3957787887714483,
+  "straight_lookahead_mult": 1.5889580740785811,
+  "corner_exit_boost": 1.46634143658033
 }

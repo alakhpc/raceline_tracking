@@ -33,6 +33,7 @@ class ControllerParams:
     steer_anticipation: float = 2.5  # How much to slow for steering changes - range: [1.0, 5.0]
     raceline_blend: float = 0.0  # Blend between centerline (0) and raceline (1) - range: [0.0, 1.0]
     straight_lookahead_mult: float = 2.5  # Lookahead multiplier on straights - range: [1.5, 4.0]
+    corner_exit_boost: float = 1.2  # Velocity multiplier when exiting corners - range: [1.0, 1.5]
 
     def __repr__(self) -> str:
         return (
@@ -48,7 +49,8 @@ class ControllerParams:
             f"  decel_factor={self.decel_factor:.2f},\n"
             f"  steer_anticipation={self.steer_anticipation:.2f},\n"
             f"  raceline_blend={self.raceline_blend:.2f},\n"
-            f"  straight_lookahead_mult={self.straight_lookahead_mult:.2f}\n"
+            f"  straight_lookahead_mult={self.straight_lookahead_mult:.2f},\n"
+            f"  corner_exit_boost={self.corner_exit_boost:.2f}\n"
             f")"
         )
 
@@ -629,6 +631,20 @@ def controller(
         ctrl_params.decel_factor,
         ctrl_params.steer_anticipation,
     )
+
+    # Corner exit boost: if curvature is decreasing, we're exiting a corner
+    # Look at curvature a bit ahead to detect exit
+    ahead_idx = (closest_idx + 5) % n
+    ahead_prev = (ahead_idx - 1) % n
+    ahead_next = (ahead_idx + 1) % n
+    ahead_curvature = compute_curvature(raceline[ahead_prev], raceline[ahead_idx], raceline[ahead_next])
+
+    # If ahead curvature is less than current (exiting corner), boost velocity
+    if ahead_curvature < local_curvature * 0.8:  # Curvature decreasing by 20%+
+        # Apply corner exit boost (accelerate earlier out of corners)
+        exit_boost = 1.0 + (ctrl_params.corner_exit_boost - 1.0) * (1.0 - ahead_curvature / (local_curvature + 1e-6))
+        exit_boost = min(exit_boost, ctrl_params.corner_exit_boost)  # Cap at max boost
+        desired_velocity = min(desired_velocity * exit_boost, ctrl_params.v_max)
 
     desired_commands = np.array([desired_steering, desired_velocity])
 
