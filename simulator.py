@@ -137,6 +137,16 @@ class Simulator:
                 color="Red",
             )
 
+            self.axis.text(
+                self.car.state[0] + 195,
+                self.car.state[1] + 125,
+                f"Speed: {self.car.state[3]:.1f} m/s",
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontsize=8,
+                color="Red",
+            )
+
             self.figure.canvas.draw()
             return True
 

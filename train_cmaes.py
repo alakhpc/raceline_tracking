@@ -226,7 +226,7 @@ Examples:
         sigma0 = 0.15
         print(f"Resuming from {'base' if is_base else fingerprint}...")
     else:
-        initial_params = ControllerParams() if is_base else config.base
+        initial_params = ControllerParams()
         sigma0 = 0.3
 
     print(f"Initial params:\n{initial_params}\n")
