@@ -1,14 +1,16 @@
+import matplotlib.axes as axes
+import matplotlib.patches as patches
+import matplotlib.path as path
 import numpy as np
 
-import matplotlib.path as path
-import matplotlib.patches as patches
-import matplotlib.axes as axes
 
 class RaceTrack:
 
-    def __init__(self, filepath : str):
-        data = np.loadtxt(filepath, comments="#", delimiter=",")
+    def __init__(self, track_filepath : str, raceline_filepath: str):
+        data = np.loadtxt(track_filepath, comments="#", delimiter=",")
+        raceline_data = np.loadtxt(raceline_filepath, comments="#", delimiter=",")
         self.centerline = data[:, 0:2]
+        self.raceline = raceline_data[:, 0:2]
         self.centerline = np.vstack((self.centerline[-1], self.centerline, self.centerline[0]))
 
         centerline_gradient = np.gradient(self.centerline, axis=0)
